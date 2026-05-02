@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // -------------------------------------------------------------------------
+    // Global Safety Net
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Global Helpers
+    // -------------------------------------------------------------------------
+    function isSignedIn() { return request.auth != null; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function userId() { return request.auth.uid; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+
+    // -------------------------------------------------------------------------
+    // Tournament Rules
+    // -------------------------------------------------------------------------
+    function isValidTournament(data) {
+      return data.keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
+             data.keys().size() <= 10 && // Allow for some extra non-critical fields
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.type in ['single_elimination', 'double_elimination', 'round_robin'] &&
+             data.status in ['draft', 'active', 'finished'] &&
+             data.createdAt == request.time &&
+             data.createdBy == userId();
+    }
+
+    match /tournaments/{tournamentId} {
+      allow create: if isVerified() && isValidId(tournamentId) && isValidTournament(incoming());
+      allow get: if true; // Publicly viewable
+      allow list: if true; // Anyone can search for tournaments
+      allow update: if isVerified() && existing().createdBy == userId() && (
+        // Only owner can update. Immutable fields check:
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        // Validate the rest of the shape (though partial updates might be tricky with isValidTournament)
+        // For CQRS style actions, we'd be more specific. 
+        // For simplicity here, we allow updating name, type, status, and settings.
+        incoming().keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
+        incoming().name is string && incoming().name.size() <= 100 &&
+        incoming().status in ['draft', 'active', 'finished'] &&
+        (!('winnerId' in incoming()) || incoming().winnerId is string)
+      );
+      allow delete: if isVerified() && existing().createdBy == userId();
+
+      // -----------------------------------------------------------------------
+      // Player Rules (Nested)
+      // -----------------------------------------------------------------------
+      function isValidPlayer(data) {
+        return data.keys().hasAll(['name', 'tournamentId']) &&
+               data.name is string && data.name.size() > 0 && data.name.size() <= 50 &&
+               data.tournamentId == tournamentId;
+      }
+
+      match /players/{playerId} {
+        allow create: if isVerified() && isValidId(playerId) && isValidPlayer(incoming()) && 
+                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+        allow read: if true;
+        allow update, delete: if isVerified() && 
+                                get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+      }
+
+      // -----------------------------------------------------------------------
+      // Match Rules (Nested)
+      // -----------------------------------------------------------------------
+      function isValidMatch(data) {
+        return data.keys().hasAll(['tournamentId', 'round', 'status']) &&
+               data.tournamentId == tournamentId &&
+               data.status in ['pending', 'in_progress', 'finished'];
+      }
+
+      match /matches/{matchId} {
+        allow create: if isVerified() && isValidId(matchId) && isValidMatch(incoming()) &&
+                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+        allow read: if true;
+        allow update: if isVerified() && 
+                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId() &&
+                        isValidMatch(incoming());
+        allow delete: if isVerified() && 
+                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+      }
+    }
+  }
+}

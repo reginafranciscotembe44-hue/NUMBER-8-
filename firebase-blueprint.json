@@ -1,0 +1,68 @@
+{
+  "entities": {
+    "Tournament": {
+      "title": "Tournament",
+      "description": "A billiards tournament configuration and state.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the tournament" },
+        "type": { "type": "string", "enum": ["single_elimination", "double_elimination", "round_robin"], "description": "Format of the tournament" },
+        "status": { "type": "string", "enum": ["draft", "active", "finished"], "description": "Current status of the tournament" },
+        "winnerId": { "type": "string", "description": "UID of the winner player" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "createdBy": { "type": "string", "description": "UID of the creator" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "maxPlayers": { "type": "number" },
+            "gamesPerMatch": { "type": "number" }
+          }
+        }
+      },
+      "required": ["name", "type", "status", "createdAt", "createdBy"]
+    },
+    "Player": {
+      "title": "Player",
+      "description": "A participant in a tournament.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "tournamentId": { "type": "string" },
+        "seed": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "out"] }
+      },
+      "required": ["name", "tournamentId"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "A match between two players.",
+      "type": "object",
+      "properties": {
+        "tournamentId": { "type": "string" },
+        "player1Id": { "type": "string" },
+        "player2Id": { "type": "string" },
+        "score1": { "type": "number" },
+        "score2": { "type": "number" },
+        "winnerId": { "type": "string" },
+        "round": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "finished"] },
+        "scheduledAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tournamentId", "round", "status"]
+    }
+  },
+  "firestore": {
+    "/tournaments/{tournamentId}": {
+      "schema": "Tournament",
+      "description": "Top-level tournaments"
+    },
+    "/tournaments/{tournamentId}/players/{playerId}": {
+      "schema": "Player",
+      "description": "Players in a specific tournament"
+    },
+    "/tournaments/{tournamentId}/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Matches in a specific tournament"
+    }
+  }
+}

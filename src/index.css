@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-brand: #10b981; /* Emerald 500 */
+  --color-brand-muted: #064e3b;
+  --color-bg-dark: #05070a;
+  --color-glass-bg: rgba(15, 23, 42, 0.5);
+  --color-glass-border: rgba(255, 255, 255, 0.1);
+}
+
+@layer base {
+  body {
+    @apply bg-bg-dark text-slate-100 font-sans antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
+}
+
+.immersive-bg {
+  background: radial-gradient(circle at 50% -20%, var(--color-brand-muted) 0%, transparent 60%);
+}
+
+.glass-card {
+  @apply bg-glass-bg backdrop-blur-md border border-glass-border rounded-2xl;
+}
+
+.neon-border {
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+.neon-dot {
+  @apply w-2 h-2 rounded-full bg-brand;
+  box-shadow: 0 0 8px var(--color-brand);
+}
+
+.score-box {
+  @apply bg-slate-800 px-4 py-2 rounded-xl border border-white/5 font-mono font-bold text-white;
+}
