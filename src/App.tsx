@@ -1303,17 +1303,33 @@ function MatchCard({
 // --- Hooks ---
 function Login() {
   const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [inIframe, setInIframe] = useState(false);
+
+  useEffect(() => {
+    setInIframe(window.self !== window.top);
+  }, []);
 
   const login = async (provider: 'google' | 'facebook') => {
     setLoading(provider);
+    setError(null);
     try {
       const authProvider = provider === 'google' 
         ? new GoogleAuthProvider() 
         : new FacebookAuthProvider();
+      
+      // Attempt login
       await signInWithPopup(auth, authProvider);
-    } catch (error: any) {
-      if (error.code !== 'auth/popup-closed-by-user') {
-        alert(`Erro na autenticação: ${error.message}`);
+    } catch (err: any) {
+      console.error("Login Error:", err);
+      if (err.code === 'auth/popup-blocked') {
+        setError("O navegador bloqueou o popup. Por favor, autorize popups ou abra em uma nova aba.");
+      } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
+        // User closed, ignore
+      } else if (err.code === 'auth/operation-not-allowed') {
+        setError(`O provedor ${provider} não está ativado no Console do Firebase.`);
+      } else {
+        setError(`Erro: ${err.message}`);
       }
     } finally {
       setLoading(null);
@@ -1331,7 +1347,7 @@ function Login() {
       <motion.div 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="glass-card p-12 max-w-md w-full relative z-10 text-center border-white/5"
+        className="glass-card p-10 max-w-md w-full relative z-10 text-center border-white/5 bg-zinc-950/50 backdrop-blur-3xl"
       >
         <div className="flex justify-center mb-8">
           <div className="w-20 h-20 bg-brand/10 border border-brand/20 rounded-3xl flex items-center justify-center shadow-2xl shadow-brand/20">
@@ -1341,6 +1357,22 @@ function Login() {
         
         <h1 className="text-4xl font-black italic uppercase tracking-tighter mb-2">NUMBER <span className="text-brand">8</span></h1>
         <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.4em] mb-12 italic">Professional Grade Gaming</p>
+
+        {inIframe && (
+          <div className="mb-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
+            Dica: Se o login não abrir, use o botão de "Abrir em nova aba" no canto superior direito para melhor estabilidade.
+          </div>
+        )}
+
+        {error && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-8 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed"
+          >
+            {error}
+          </motion.div>
+        )}
 
         <div className="space-y-4">
           <button 
@@ -1366,7 +1398,7 @@ function Login() {
           </button>
         </div>
 
-        <div className="mt-12 text-[8px] font-black uppercase tracking-[0.3em] text-slate-700 leading-relaxed">
+        <div className="mt-12 text-[8px] font-black uppercase tracking-[0.3em] text-slate-700 leading-relaxed max-w-xs mx-auto">
           Ao entrar você concorda com nossos termos de privacidade e conduta profissional em mesa.
         </div>
       </motion.div>
