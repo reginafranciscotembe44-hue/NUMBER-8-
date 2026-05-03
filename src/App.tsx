@@ -10,6 +10,7 @@ import {
   CircleDot,
   Calendar,
   Settings,
+  LogOut,
   Table as TableIcon,
   Crown,
   Trash2,
@@ -32,6 +33,8 @@ import {
 } from 'recharts';
 import { 
   onAuthStateChanged, 
+  signInAnonymously,
+  signOut,
   User
 } from 'firebase/auth';
 import { 
@@ -86,6 +89,16 @@ interface Match {
 // --- Components ---
 
 function Navbar() {
+  const { user } = useAuth();
+  
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error: any) {
+      console.error("Erro ao sair:", error);
+    }
+  };
+
   return (
     <nav className="border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
@@ -106,21 +119,30 @@ function Navbar() {
           
           <div className="h-4 w-px bg-white/10 hidden sm:block" />
 
-          <div className="flex items-center gap-4">
-            <div className="flex flex-col items-end hidden md:flex">
-              <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
-                Modo Administrador
-              </span>
-              <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">
-                Status: Sistema Aberto
-              </span>
-            </div>
-            <div className="relative group">
-              <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
-                <Users className="w-5 h-5 text-brand" />
+          {user && (
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col items-end hidden md:flex">
+                <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
+                  Controle Ativo
+                </span>
+                <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">
+                  ID: {user.uid.slice(0, 8)}
+                </span>
+              </div>
+              <div className="relative group">
+                <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-brand" />
+                </div>
+                <button 
+                  onClick={handleLogout}
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-zinc-950 border border-white/10 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:border-red-500 transition-all shadow-lg"
+                  title="Sair"
+                >
+                  <LogOut className="w-3 h-3" />
+                </button>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </nav>
@@ -231,14 +253,17 @@ function Home() {
 function TournamentManager() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
   const activeTournaments = tournaments.filter(t => t.status !== 'finished');
   const pastTournaments = tournaments.filter(t => t.status === 'finished');
 
   useEffect(() => {
-    // Buscando todos os torneios públicos
+    if (!user) return;
+
     const q = query(
       collection(db, 'tournaments'),
+      where('createdBy', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
 
@@ -445,11 +470,12 @@ function CreateTournament() {
   const [name, setName] = useState('');
   const [type, setType] = useState<Tournament['type']>('single_elimination');
   const [submitting, setSubmitting] = useState(false);
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name) return;
+    if (!name || !user) return;
 
     setSubmitting(true);
     try {
@@ -458,7 +484,7 @@ function CreateTournament() {
         type,
         status: 'draft',
         createdAt: serverTimestamp(),
-        createdBy: 'public-admin',
+        createdBy: user.uid,
         settings: {
           maxPlayers: 16,
           gamesPerMatch: 1
@@ -549,6 +575,7 @@ function CreateTournament() {
 
 function TournamentDetails() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -587,7 +614,7 @@ function TournamentDetails() {
   if (loading) return <div className="p-24 text-center text-zinc-500">Carregando campeonato...</div>;
   if (!tournament) return <div className="p-24 text-center">Torneio não encontrado</div>;
 
-  const isOwner = true;
+  const isOwner = user?.uid === tournament.createdBy;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -1327,17 +1354,110 @@ function MatchCard({
   );
 }
 
+// --- Authentication Components ---
+function Login({ onLogin }: { onLogin: (name: string) => void }) {
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    
+    setLoading(true);
+    setTimeout(() => {
+      onLogin(name);
+      setLoading(false);
+    }, 800);
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-brand/5 blur-[120px] rounded-full" />
+      
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card p-12 max-w-sm w-full relative z-10 border-white/5 bg-zinc-900/40 backdrop-blur-3xl rounded-[3rem]"
+      >
+        <div className="flex justify-center mb-10">
+          <div className="w-20 h-20 bg-brand/10 border border-brand/20 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-brand/20 rotate-12">
+            <Gamepad2 className="w-10 h-10 text-brand -rotate-12" />
+          </div>
+        </div>
+
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-black italic uppercase tracking-tighter mb-1">NUMBER <span className="text-brand">8</span></h1>
+          <p className="text-slate-500 text-[9px] font-black uppercase tracking-[0.4em] italic">Pro Billiards System</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Identificação</label>
+            <input 
+              type="text"
+              required
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Digite seu nome..."
+              className="w-full h-16 bg-white/5 border border-white/10 rounded-2xl px-6 text-white placeholder:text-zinc-700 focus:outline-none focus:border-brand/40 transition-all font-bold"
+            />
+          </div>
+
+          <button 
+            type="submit"
+            disabled={loading || !name.trim()}
+            className="w-full h-20 bg-brand text-zinc-950 font-black uppercase tracking-[0.2em] italic rounded-2xl flex flex-col items-center justify-center gap-1 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-brand/20 disabled:opacity-50"
+          >
+            {loading ? (
+              <span className="text-xs animate-pulse tracking-widest">Sincronizando...</span>
+            ) : (
+              <>
+                <span className="text-sm">Entrar Agora</span>
+                <span className="text-[8px] opacity-70 tracking-widest leading-none">N8 Admin Control</span>
+              </>
+            )}
+          </button>
+        </form>
+
+        <div className="mt-12 pt-8 border-t border-white/5 text-[8px] font-black uppercase tracking-[0.3em] text-zinc-700 text-center">
+          Acesso Total Liberado
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+function useAuth() {
+  const [user, setUser] = useState<{ uid: string; displayName: string } | null>(() => {
+    const saved = localStorage.getItem('n8_session_v1');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const login = (name: string) => {
+    const userData = { uid: `local-${Date.now()}`, displayName: name };
+    localStorage.setItem('n8_session_v1', JSON.stringify(userData));
+    setUser(userData);
+  };
+
+  const logout = () => {
+    localStorage.removeItem('n8_session_v1');
+    setUser(null);
+  };
+
+  return { user, login, logout, loading: false };
+}
+
 // --- Main App ---
 export default function App() {
+  const { user, login, logout, loading } = useAuth();
+
+  if (loading) return null;
+  if (!user) return <Login onLogin={login} />;
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-zinc-950 selection:bg-brand selection:text-black relative overflow-hidden">
-        {/* Watermark */}
-        <div className="fixed bottom-10 left-10 pointer-events-none select-none z-0 opacity-[0.03] rotate-[-15deg] whitespace-nowrap">
-          <span className="text-9xl font-black uppercase tracking-[0.2em] text-white">JOTA TEMBE</span>
-        </div>
-
-        <Navbar />
+        <Navbar user={user} onLogout={logout} />
         <main>
           <Routes>
             <Route path="/" element={<Home />} />

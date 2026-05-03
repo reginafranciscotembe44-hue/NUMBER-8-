@@ -11,9 +11,6 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     // Global Helpers
     // -------------------------------------------------------------------------
-    function isSignedIn() { return request.auth != null; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    function userId() { return request.auth.uid; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
@@ -27,27 +24,12 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.type in ['single_elimination', 'double_elimination', 'round_robin', 'survival', 'total_war'] &&
              data.status in ['draft', 'active', 'finished'] &&
-             data.createdAt == request.time &&
-             data.createdBy == userId();
+             data.createdAt == request.time;
     }
 
     match /tournaments/{tournamentId} {
-      allow create: if isSignedIn() && isValidId(tournamentId) && isValidTournament(incoming());
-      allow get: if isSignedIn() && resource.data.createdBy == userId();
-      allow list: if isSignedIn() && resource.data.createdBy == userId();
-      allow update: if isSignedIn() && existing().createdBy == userId() && (
-        // Only owner can update. Immutable fields check:
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
-        // Validate the rest of the shape (though partial updates might be tricky with isValidTournament)
-        // For CQRS style actions, we'd be more specific. 
-        // For simplicity here, we allow updating name, type, status, and settings.
-        incoming().keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
-        incoming().name is string && incoming().name.size() <= 100 &&
-        incoming().status in ['draft', 'active', 'finished'] &&
-        (!('winnerId' in incoming()) || incoming().winnerId is string)
-      );
-      allow delete: if isSignedIn() && existing().createdBy == userId();
+      allow create: if isValidId(tournamentId) && isValidTournament(incoming());
+      allow read, update, delete: if true;
 
       // -----------------------------------------------------------------------
       // Player Rules (Nested)
@@ -59,11 +41,8 @@ service cloud.firestore {
       }
 
       match /players/{playerId} {
-        allow create: if isSignedIn() && isValidId(playerId) && isValidPlayer(incoming()) && 
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
-        allow read: if true;
-        allow update, delete: if isSignedIn() && 
-                                get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+        allow create: if isValidId(playerId) && isValidPlayer(incoming());
+        allow read, update, delete: if true;
       }
 
       // -----------------------------------------------------------------------
@@ -76,14 +55,8 @@ service cloud.firestore {
       }
 
       match /matches/{matchId} {
-        allow create: if isSignedIn() && isValidId(matchId) && isValidMatch(incoming()) &&
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
-        allow read: if true;
-        allow update: if isSignedIn() && 
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId() &&
-                        isValidMatch(incoming());
-        allow delete: if isSignedIn() && 
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+        allow create: if isValidId(matchId) && isValidMatch(incoming());
+        allow read, update, delete: if true;
       }
     }
   }
