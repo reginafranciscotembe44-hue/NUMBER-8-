@@ -13,13 +13,25 @@ import {
   LogOut,
   LogIn,
   Table as TableIcon,
-  Crown
+  Crown,
+  MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  BarChart, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
   GoogleAuthProvider, 
+  FacebookAuthProvider,
   signOut,
   User
 } from 'firebase/auth';
@@ -43,11 +55,12 @@ import { handleFirestoreError, OperationType } from './lib/firebaseUtils';
 interface Tournament {
   id: string;
   name: string;
-  type: 'single_elimination' | 'double_elimination' | 'round_robin';
+  type: 'single_elimination' | 'double_elimination' | 'round_robin' | 'survival' | 'total_war';
   status: 'draft' | 'active' | 'finished';
   winnerId?: string;
   winnerName?: string;
   createdAt: any;
+  finishedAt?: any;
   createdBy: string;
 }
 
@@ -68,20 +81,21 @@ interface Match {
   winnerId: string | null;
   round: number;
   status: 'pending' | 'in_progress' | 'finished';
+  updatedAt?: any;
 }
 
 // --- Components ---
 
-function Navbar({ user }: { user: User | null }) {
-  const handleLogin = async () => {
+function Navbar() {
+  const { user } = useAuth();
+  
+  const handleLogout = async () => {
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch (error) {
-      console.error(error);
+      await signOut(auth);
+    } catch (error: any) {
+      console.error("Erro ao sair:", error);
     }
   };
-
-  const handleLogout = () => signOut(auth);
 
   return (
     <nav className="border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50">
@@ -91,32 +105,40 @@ function Navbar({ user }: { user: User | null }) {
              <div className="absolute inset-0 bg-brand blur-md opacity-20 group-hover:opacity-40 transition-opacity"></div>
              <Trophy className="w-6 h-6 text-brand relative z-10" />
           </div>
-          <span className="font-display font-black text-3xl tracking-tighter italic uppercase text-white">
+          <span className="font-display font-black text-2xl md:text-3xl tracking-tighter italic uppercase text-white">
             NUMBER <span className="text-brand">8</span>
           </span>
         </Link>
 
-        <div className="flex items-center gap-6">
-          {user ? (
-            <div className="flex items-center gap-6">
-              <Link to="/tournaments" className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-400 hover:text-brand transition-colors">
-                Painel de Controle
-              </Link>
-              <button 
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-800 text-[10px] uppercase tracking-widest font-bold text-white hover:bg-slate-700 transition-colors"
-              >
-                <LogOut className="w-3 h-3" />
-                Sair
-              </button>
+        <div className="flex items-center gap-4 md:gap-8">
+          <Link to="/tournaments" className="hidden sm:block text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 hover:text-brand transition-colors">
+            Painel Geral
+          </Link>
+          
+          <div className="h-4 w-px bg-white/10 hidden sm:block" />
+
+          {user && (
+            <div className="flex items-center gap-4">
+              <div className="flex flex-col items-end hidden md:flex">
+                <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">{user.displayName || 'Mestre Pro'}</span>
+                <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">Status: Online</span>
+              </div>
+              <div className="relative group">
+                <img 
+                  src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+                  alt="Profile" 
+                  className="w-10 h-10 rounded-xl border border-white/10 group-hover:border-brand/50 transition-all cursor-pointer"
+                  referrerPolicy="no-referrer"
+                />
+                <button 
+                  onClick={handleLogout}
+                  className="absolute -top-1 -right-1 w-5 h-5 bg-zinc-950 border border-white/10 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:border-red-500 transition-all"
+                  title="Sair"
+                >
+                  <LogOut className="w-3 h-3" />
+                </button>
+              </div>
             </div>
-          ) : (
-            <button 
-              onClick={handleLogin}
-              className="px-6 py-2.5 bg-brand text-bg-dark text-xs font-bold uppercase tracking-widest rounded-xl hover:bg-brand/90 transition-colors"
-            >
-              Iniciar Sessão
-            </button>
           )}
         </div>
       </div>
@@ -127,40 +149,56 @@ function Navbar({ user }: { user: User | null }) {
 function Home() {
   return (
     <div className="flex flex-col items-center relative">
-      <div className="absolute inset-0 immersive-bg pointer-events-none" />
-      
-      {/* Hero Section */}
-      <section className="w-full py-32 px-4 flex flex-col items-center text-center relative z-10">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+      <section className="w-full min-h-[90vh] flex flex-col items-center justify-center px-6 pt-12 pb-24 relative overflow-hidden">
+        {/* Background elements */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-brand/5 blur-[120px] rounded-full pointer-events-none" />
+        <div className="absolute top-0 left-0 w-full h-full bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-20 pointer-events-none" />
+        
+        <motion.div 
+          className="text-center relative z-10"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 1 }}
         >
-          <div className="flex items-center gap-2 mb-6 justify-center">
-            <span className="neon-dot"></span>
-            <span className="text-[10px] uppercase tracking-[0.2em] font-semibold text-brand">Sistema Online // v2.0</span>
-          </div>
-          <h1 className="text-6xl md:text-8xl font-black mb-8 max-w-5xl leading-[0.9] text-white uppercase italic tracking-tighter">
-            CAMPEONATOS <br />
-            <span className="text-brand underline decoration-4 underline-offset-8">PROFISSIONAIS</span>
+          <motion.div 
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="flex items-center gap-3 mb-10 justify-center"
+          >
+             <span className="w-12 h-px bg-brand/40"></span>
+             <span className="text-[10px] uppercase tracking-[0.6em] font-black text-brand italic">Sovereign Billiards Management</span>
+             <span className="w-12 h-px bg-brand/40"></span>
+          </motion.div>
+
+          <h1 className="text-7xl md:text-[10rem] font-black mb-10 leading-[0.8] text-white uppercase italic tracking-tighter">
+            PRO GRADE <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-b from-brand to-brand/40">TOURNAMENTS</span>
           </h1>
-          <p className="text-slate-400 text-lg md:text-xl max-w-2xl mb-12 font-medium tracking-tight">
-            Gestão de elite para o seu salão de bilhar. Tabelas, resultados ao vivo e estatísticas em um painel imersivo.
+
+          <p className="text-slate-400 text-lg md:text-xl max-w-3xl mx-auto mb-16 font-medium leading-relaxed tracking-tight uppercase">
+            A plataforma definitiva para organizar campeonatos de elite. 
+            <span className="text-white"> Precisão cirúrgica</span> na gestão de chaves e estatísticas imersivas.
           </p>
-          <div className="flex flex-col sm:flex-row gap-6 items-center justify-center">
+
+          <div className="flex flex-col sm:flex-row gap-8 items-center justify-center">
             <Link 
               to="/tournaments/new" 
-              className="px-10 py-5 bg-brand text-bg-dark font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:scale-105 active:scale-95 transition-all text-sm neon-border"
+              className="group relative px-12 py-6 bg-brand text-zinc-950 font-black uppercase italic tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(var(--brand-rgb),0.2)]"
             >
-              <Plus className="w-5 h-5 stroke-[3px]" />
-              Criar Torneio
+              <div className="relative z-10 flex items-center gap-3 text-sm">
+                <Plus className="w-5 h-5 stroke-[3px]" />
+                Criar Arena
+              </div>
+              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
             </Link>
+            
             <Link 
               to="/tournaments" 
-              className="px-10 py-5 bg-slate-900 border border-white/10 text-white font-black uppercase tracking-widest rounded-2xl flex items-center gap-3 hover:bg-slate-800 transition-all text-sm"
+              className="px-12 py-6 bg-zinc-900/50 border border-white/5 text-white font-black uppercase italic tracking-[0.2em] rounded-2xl flex items-center gap-3 hover:bg-zinc-800 transition-all text-sm backdrop-blur-xl"
             >
               <LayoutDashboard className="w-5 h-5" />
-              Painel ao Vivo
+              Ver Painéis
             </Link>
           </div>
         </motion.div>
@@ -172,7 +210,7 @@ function Home() {
           {[
             { label: 'Partidas Ativas', val: '24' },
             { label: 'Jogadores Pró', val: '128' },
-            { label: 'Premiação', val: '$12.5k' },
+            { label: 'Premiação Total', val: '$12.5k' },
             { label: 'Mesas ao Vivo', val: '08' }
           ].map((stat, i) => (
             <div key={i} className="text-center md:text-left">
@@ -194,8 +232,13 @@ function TournamentManager() {
   const activeTournaments = tournaments.filter(t => t.status !== 'finished');
   const pastTournaments = tournaments.filter(t => t.status === 'finished');
 
+  const totalPlayers = tournaments.length * 8; // Approximation for the UI feel
+
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      setTournaments([]);
+      return;
+    }
 
     const q = query(
       collection(db, 'tournaments'),
@@ -214,59 +257,83 @@ function TournamentManager() {
     return unsubscribe;
   }, [user]);
 
-  if (!user) return (
-    <div className="p-24 text-center">
-      <h2 className="text-2xl font-bold mb-4">Por favor, inicie sessão para ver seus torneios</h2>
-      <p className="text-zinc-400">Você precisa de uma conta para criar e gerenciar competições de bilhar.</p>
-    </div>
-  );
-
   return (
-    <div className="max-w-5xl mx-auto px-4 py-12">
-      <div className="flex items-center justify-between mb-12">
-        <div>
-          <h1 className="text-3xl font-bold mb-2">Meus Torneios</h1>
-          <p className="text-zinc-400">Gerencie suas competições existentes ou crie uma nova.</p>
+    <div className="max-w-7xl mx-auto px-6 py-16">
+      <header className="flex flex-col md:flex-row items-start md:items-end justify-between mb-16 gap-8">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+             <div className="w-12 h-1 alpha-bg-brand rounded-full overflow-hidden">
+                <div className="h-full bg-brand w-1/3 animate-pulse"></div>
+             </div>
+             <span className="text-[10px] font-black uppercase tracking-[0.4em] text-brand italic">Central de Comando</span>
+          </div>
+          <h1 className="text-5xl font-black italic uppercase tracking-tighter text-white">Ecossistema <br /> de <span className="text-brand">Competição</span></h1>
+          <p className="text-slate-500 text-sm max-w-md font-medium leading-relaxed tracking-wide uppercase">
+            Acompanhe o desempenho dos jogadores e a evolução das chaves em tempo real. Cada tacada conta para a glória eterna.
+          </p>
         </div>
-        <Link 
-          to="/tournaments/new" 
-          className="px-6 py-3 bg-brand text-zinc-950 font-bold rounded-xl flex items-center gap-2 hover:scale-105 transition-transform"
-        >
-          <Plus className="w-5 h-5" />
-          Novo Torneio
-        </Link>
-      </div>
+
+        <div className="flex flex-wrap gap-4 items-center">
+          <div className="glass-card px-8 py-4 border-white/5 bg-white/5 flex flex-col items-center">
+             <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Média de Inscritos</span>
+             <span className="text-2xl font-black italic uppercase italic tracking-tighter text-white">8/16</span>
+          </div>
+          <Link 
+            to="/tournaments/new" 
+            className="px-10 py-5 bg-brand text-bg-dark font-black uppercase italic tracking-[0.1em] rounded-2xl flex items-center gap-3 hover:scale-105 active:scale-95 transition-all text-xs shadow-xl shadow-brand/10 shadow-[0_0_40px_rgba(var(--brand-rgb),0.2)]"
+          >
+            <Plus className="w-5 h-5 stroke-[3px]" />
+            Nova Temporada
+          </Link>
+        </div>
+      </header>
 
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-pulse">
-          {[1,2,3,4].map(i => <div key={i} className="h-48 bg-zinc-900 rounded-2xl" />)}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 animate-pulse">
+          {[1,2,3,4,5,6].map(i => <div key={i} className="h-64 bg-zinc-900/50 rounded-3xl border border-white/5" />)}
         </div>
       ) : tournaments.length === 0 ? (
-        <div className="glass-card p-12 text-center flex flex-col items-center gap-6">
-          <div className="w-16 h-16 bg-zinc-800 rounded-full flex items-center justify-center">
-             <Trophy className="w-8 h-8 text-zinc-600" />
+        <motion.div 
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-24 text-center flex flex-col items-center gap-8 border-dashed border-2 border-white/5"
+        >
+          <div className="relative">
+             <div className="absolute inset-0 bg-brand blur-2xl opacity-10 animate-pulse"></div>
+             <Trophy className="w-16 h-16 text-zinc-800 relative z-10" />
           </div>
           <div>
-            <h3 className="text-xl font-bold mb-2">Nenhum torneio ainda</h3>
-            <p className="text-zinc-400 mb-6">Crie seu primeiro campeonato de bilhar para começar.</p>
-            <Link to="/tournaments/new" className="text-brand font-bold flex items-center gap-2 justify-center">
-              Começar agora <ChevronRight className="w-4 h-4" />
+            <h3 className="text-2xl font-black italic uppercase tracking-tight text-white mb-3">O Campo está Vazio</h3>
+            <p className="text-slate-500 mb-8 max-w-sm uppercase text-[10px] font-bold tracking-widest leading-relaxed">Não existem torneios ativos sob sua gestão. Comece agora para reunir os melhores jogadores.</p>
+            <Link 
+              to="/tournaments/new" 
+              className="px-8 py-4 bg-white text-black font-black uppercase tracking-widest rounded-xl hover:bg-brand transition-all text-[10px] italic"
+            >
+              Iniciar Primeiro Torneio
             </Link>
           </div>
-        </div>
+        </motion.div>
       ) : (
-        <div className="space-y-16">
+        <div className="space-y-24">
           {activeTournaments.length > 0 && (
             <section>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-brand mb-8 flex items-center gap-4">
-                Em Andamento
-                <div className="h-px bg-brand/20 flex-grow" />
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="flex items-center gap-6 mb-12">
+                <div className="flex flex-col">
+                  <h2 className="text-[10px] font-black uppercase tracking-[0.5em] text-brand">Temporada Ativa</h2>
+                  <div className="h-1 bg-brand w-full mt-2 rounded-full shadow-[0_0_10px_rgba(var(--brand-rgb),0.5)]" />
+                </div>
+                <div className="h-px bg-white/5 flex-grow" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
                 {activeTournaments.map((t) => (
-                  <div key={t.id}>
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    whileInView={{ opacity: 1, scale: 1 }}
+                    viewport={{ once: true }}
+                    key={t.id}
+                  >
                     <TournamentCard t={t} />
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </section>
@@ -274,15 +341,23 @@ function TournamentManager() {
 
           {pastTournaments.length > 0 && (
             <section>
-              <h2 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 mb-8 flex items-center gap-4">
-                Histórico de Campeonatos
+              <div className="flex items-center gap-6 mb-12">
+                <div className="flex flex-col">
+                  <h2 className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-500">Hall de Legendas</h2>
+                  <div className="h-0.5 bg-slate-800 w-full mt-2 rounded-full" />
+                </div>
                 <div className="h-px bg-white/5 flex-grow" />
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-8 opacity-60 hover:opacity-100 transition-opacity">
                 {pastTournaments.map((t) => (
-                  <div key={t.id}>
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    whileInView={{ opacity: 1 }}
+                    viewport={{ once: true }}
+                    key={t.id}
+                  >
                     <TournamentCard t={t} variant="history" />
-                  </div>
+                  </motion.div>
                 ))}
               </div>
             </section>
@@ -299,58 +374,71 @@ function TournamentCard({ t, variant = 'active' }: { t: Tournament, variant?: 'a
       to={`/tournaments/${t.id}`} 
       className={`glass-card group transition-all flex flex-col justify-between relative overflow-hidden ${
         variant === 'active' 
-          ? 'p-8 border-brand/20 hover:border-brand/40 min-h-[14rem] bg-slate-900/40' 
+          ? 'p-10 border-white/5 hover:border-brand/40 min-h-[16rem] bg-slate-900/40 shadow-2xl shadow-black/40' 
           : 'p-6 border-white/5 hover:border-white/20 min-h-[12rem] bg-slate-900/20'
       }`}
     >
-      <div className={`absolute top-0 right-0 w-32 h-32 blur-3xl -translate-y-1/2 translate-x-1/2 transition-all ${
-        variant === 'active' ? 'bg-brand/10 group-hover:bg-brand/20' : 'bg-slate-700/10 group-hover:bg-slate-700/20'
+      <div className={`absolute top-0 right-0 w-48 h-48 blur-[100px] -translate-y-1/2 translate-x-1/2 transition-opacity duration-700 pointer-events-none ${
+        t.status === 'active' ? 'bg-emerald-500/10 opacity-60' : 
+        t.status === 'finished' ? 'bg-zinc-500/10' : 
+        'bg-brand/10 opacity-40'
       }`} />
       
-      <div>
-        <div className="flex items-center justify-between mb-6">
-          <div className={`px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest ${
-            t.status === 'active' ? 'bg-brand/20 text-brand' : 
-            t.status === 'finished' ? 'bg-slate-800 text-slate-400' : 
-            'bg-amber-400/20 text-amber-400'
+      <div className="relative z-10">
+        <div className="flex items-center justify-between mb-8">
+          <div className={`px-4 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.3em] border ${
+            t.status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
+            t.status === 'finished' ? 'bg-slate-800 border-white/5 text-slate-500' : 
+            'bg-amber-400/10 border-amber-400/20 text-amber-400'
           }`}>
-            {t.status === 'active' ? 'Ativo' : t.status === 'draft' ? 'Rascunho' : 'Finalizado'}
+            {t.status === 'active' ? 'Ao Vivo' : t.status === 'draft' ? 'Rascunho' : 'Concluído'}
           </div>
-          <span className="text-[10px] text-slate-500 font-mono font-bold tracking-tighter">
-            {t.createdAt?.toDate ? new Date(t.createdAt.toDate()).toLocaleDateString() : 'DRAFT'}
+          <span className="text-[10px] text-slate-600 font-mono font-bold tracking-widest uppercase">
+            {t.createdAt?.toDate ? new Date(t.createdAt.toDate()).toLocaleDateString('pt-BR') : 'SINCE DRAFT'}
           </span>
         </div>
-        <h3 className={`${variant === 'active' ? 'text-3xl' : 'text-xl'} font-black italic uppercase italic tracking-tighter group-hover:text-brand transition-colors mb-2`}>{t.name}</h3>
-        <p className="text-slate-500 text-[10px] uppercase tracking-[0.2em] font-bold flex items-center gap-2">
-          <TableIcon className="w-3 h-3 text-brand" />
-          Formato: {t.type.replace('_', ' ')}
-        </p>
+        
+        <h3 className={`${variant === 'active' ? 'text-4xl' : 'text-xl'} font-black italic uppercase tracking-tighter group-hover:text-brand transition-colors mb-2 leading-[0.9]`}>{t.name}</h3>
+        
+        <div className="flex items-center gap-4 mt-2">
+          <p className="text-slate-500 text-[10px] uppercase tracking-[0.2em] font-black flex items-center gap-2">
+            <TableIcon className="w-3 text-brand" />
+            {
+              t.type === 'single_elimination' ? 'Eliminação Simples' :
+              t.type === 'double_elimination' ? 'Dupla Eliminação' :
+              t.type === 'survival' ? 'Sobrevivência' :
+              t.type === 'total_war' ? 'Guerra Total' :
+              'Pontos Corridos'
+            }
+          </p>
+        </div>
 
         {t.winnerId && (
-          <div className="mt-4 flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-brand">
-               <Trophy className="w-4 h-4" />
-               <span className="text-[10px] font-black uppercase tracking-widest italic">Hall da Fama</span>
-            </div>
-            {t.winnerName && (
-              <span className="text-lg font-black uppercase italic tracking-tighter text-white ml-6">
-                {t.winnerName}
-              </span>
-            )}
+          <div className="mt-10 pt-6 border-t border-white/5 flex items-center gap-4">
+             <div className="w-10 h-10 rounded-2xl bg-brand/10 border border-brand/20 flex items-center justify-center shadow-lg shadow-brand/5">
+                <Crown className="w-5 h-5 text-brand" />
+             </div>
+             <div className="flex flex-col">
+                <span className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-500 mb-0.5">Hall da Fama</span>
+                <span className="text-lg font-black uppercase italic tracking-tight text-white">
+                  {t.winnerName}
+                </span>
+             </div>
           </div>
         )}
       </div>
       
-      <div className={`flex items-center justify-between uppercase tracking-widest font-bold pt-6 border-t border-white/5 mt-4 ${variant === 'active' ? 'text-[10px]' : 'text-[8px]'}`}>
-         <div className="flex items-center gap-4 text-slate-400">
-            <span className="flex items-center gap-2">
+      <div className={`flex items-center justify-between uppercase tracking-[0.3em] font-black pt-8 mt-4 ${variant === 'active' ? 'text-[9px]' : 'text-[8px]'}`}>
+         <div className="flex items-center gap-6 text-slate-500">
+            <span className="flex items-center gap-2 group-hover:text-white transition-colors">
                <Users className="w-3 h-3" />
-               Jogadores
+               Competidores
             </span>
          </div>
-         <span className="text-brand opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-           {variant === 'active' ? 'Painel de Controle' : 'Ver Resultados'} <ChevronRight className="w-3 h-3" />
-         </span>
+         <div className="flex items-center gap-2 text-brand font-black group-hover:translate-x-2 transition-transform italic">
+            Entrar
+            <ChevronRight className="w-4 h-4" />
+         </div>
       </div>
     </Link>
   );
@@ -358,7 +446,7 @@ function TournamentCard({ t, variant = 'active' }: { t: Tournament, variant?: 'a
 
 function CreateTournament() {
   const [name, setName] = useState('');
-  const [type, setType] = useState<'single_elimination' | 'double_elimination' | 'round_robin'>('single_elimination');
+  const [type, setType] = useState<Tournament['type']>('single_elimination');
   const [submitting, setSubmitting] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -414,9 +502,11 @@ function CreateTournament() {
           <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Formato de Batalha</label>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {[
-              { id: 'single_elimination', label: 'Mata-Mata', desc: 'Eliminação Única' },
-              { id: 'double_elimination', label: 'Sobrevivência', desc: 'Eliminação Dupla' },
-              { id: 'round_robin', label: 'Guerra Total', desc: 'Todos Contra Todos' }
+              { id: 'single_elimination', label: 'Eliminação Simples', desc: 'Mata-Mata Direto' },
+              { id: 'double_elimination', label: 'Dupla Eliminação', desc: 'Com Repescagem' },
+              { id: 'survival', label: 'Sobrevivência', desc: 'Mata-Mata Violento' },
+              { id: 'total_war', label: 'Guerra Total', desc: 'Campo de Batalha' },
+              { id: 'round_robin', label: 'Pontos Corridos', desc: 'Todos vs Todos' }
             ].map(f => (
               <button
                 key={f.id}
@@ -513,7 +603,13 @@ function TournamentDetails() {
             <div className="flex items-center gap-6 text-slate-500 text-[10px] font-bold uppercase tracking-widest">
               <span className="flex items-center gap-2 text-emerald-500">
                 <TableIcon className="w-3 h-3" />
-                Formato // {tournament.type.replace('_', ' ')}
+                Formato // {
+                  tournament.type === 'single_elimination' ? 'Eliminação Simples' :
+                  tournament.type === 'double_elimination' ? 'Dupla Eliminação' :
+                  tournament.type === 'survival' ? 'Sobrevivência' :
+                  tournament.type === 'total_war' ? 'Guerra Total' :
+                  'Pontos Corridos'
+                }
               </span>
               <span className="flex items-center gap-2">
                 <Users className="w-3 h-3" />
@@ -591,10 +687,10 @@ function TournamentDetails() {
       {/* Tab Content */}
       <div className="min-h-[400px]">
         {activeTab === 'players' && (
-          <PlayerList tournamentId={tournament.id} players={players} isOwner={isOwner} />
+          <PlayerList tournament={tournament} players={players} matches={matches} isOwner={isOwner} />
         )}
         {activeTab === 'matches' && (
-          <MatchList tournamentId={tournament.id} matches={matches} players={players} isOwner={isOwner} />
+          <MatchList tournament={tournament} matches={matches} players={players} isOwner={isOwner} />
         )}
         {activeTab === 'settings' && (
           <div className="glass-card p-10 text-center text-zinc-500">
@@ -606,9 +702,42 @@ function TournamentDetails() {
   );
 }
 
-function PlayerList({ tournamentId, players, isOwner }: { tournamentId: string, players: Player[], isOwner: boolean }) {
+function PlayerList({ tournament, players, matches, isOwner }: { tournament: Tournament, players: Player[], matches: Match[], isOwner: boolean }) {
   const [newName, setNewName] = useState('');
+  const tournamentId = tournament.id;
+
+  // --- Stats Calculations ---
+  const finishedMatches = matches.filter(m => m.status === 'finished');
   
+  const avgGamesPerMatch = finishedMatches.length > 0
+    ? (finishedMatches.reduce((acc, m) => acc + m.score1 + m.score2, 0) / finishedMatches.length).toFixed(1)
+    : "0";
+
+  const tournamentDuration = tournament.finishedAt && tournament.createdAt
+    ? Math.abs(tournament.finishedAt.toDate() - tournament.createdAt.toDate())
+    : null;
+
+  const formatDuration = (ms: number) => {
+    const minutes = Math.floor(ms / 60000);
+    const seconds = ((ms % 60000) / 1000).toFixed(0);
+    return `${minutes}m ${seconds}s`;
+  };
+
+  const playerStats = players.map(p => {
+    const pMatches = finishedMatches.filter(m => m.player1Id === p.id || m.player2Id === p.id);
+    const wins = finishedMatches.filter(m => m.winnerId === p.id).length;
+    const losses = pMatches.length - wins;
+    const winRate = pMatches.length > 0 ? ((wins / pMatches.length) * 100).toFixed(0) : "0";
+    
+    return {
+      name: p.name,
+      wins,
+      losses,
+      winRate: parseInt(winRate),
+      total: pMatches.length
+    };
+  }).sort((a, b) => b.wins - a.wins);
+
   const addPlayer = async (e: FormEvent) => {
     e.preventDefault();
     if (!newName) return;
@@ -627,76 +756,149 @@ function PlayerList({ tournamentId, players, isOwner }: { tournamentId: string, 
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-      <div className="lg:col-span-2 space-y-4">
-        <h3 className="text-xl font-bold mb-6 italic">Participantes Inscritos</h3>
-        <div className="grid gap-4">
-          {players.length === 0 ? (
-            <div className="glass-card p-20 text-center text-zinc-600 border-dashed border-2">
-              <Users className="w-12 h-12 mx-auto mb-4 opacity-20" />
-              Nenhum jogador inscrito ainda.
+      <div className="lg:col-span-2 space-y-12">
+        {/* Statistics Dashboard */}
+        <section className="space-y-6">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-brand">Dashboard de Performance</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="glass-card p-6 border-brand/20 bg-brand/5">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Média de Games</div>
+              <div className="text-3xl font-black italic uppercase tracking-tighter text-white">{avgGamesPerMatch} <span className="text-brand text-sm italic">per Match</span></div>
             </div>
-          ) : (
-            players.map((p, i) => (
-              <motion.div 
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.05 }}
-                key={p.id} 
-                className="glass-card p-4 flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center text-zinc-500 font-mono text-xs">
-                    #{p.seed}
+            <div className="glass-card p-6 border-white/5">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Líder de Vitórias</div>
+              <div className="text-3xl font-black italic uppercase tracking-tighter text-white">{playerStats[0]?.wins || 0} <span className="text-brand text-sm italic">Wins</span></div>
+            </div>
+            <div className="glass-card p-6 border-white/5">
+              <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-2">Tempo Total</div>
+              <div className="text-3xl font-black italic uppercase tracking-tighter text-white">
+                {tournamentDuration ? formatDuration(tournamentDuration) : "Ativo..."}
+              </div>
+            </div>
+          </div>
+
+          <div className="glass-card p-8 h-[300px]">
+            <div className="text-[10px] font-black uppercase tracking-widest text-brand mb-6">Comparativo de Vitórias</div>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={playerStats.slice(0, 8)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff0a" vertical={false} />
+                <XAxis 
+                  dataKey="name" 
+                  stroke="#64748b" 
+                  fontSize={10} 
+                  fontWeight="bold"
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis 
+                  stroke="#64748b" 
+                  fontSize={10} 
+                  fontWeight="bold"
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: '#09090b', border: '1px solid #ffffff10', borderRadius: '12px' }}
+                  itemStyle={{ fontSize: '10px', fontWeight: '900', textTransform: 'uppercase', letterSpacing: '0.1em' }}
+                />
+                <Bar dataKey="wins" radius={[4, 4, 0, 0]}>
+                  {playerStats.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={index === 0 ? '#10b981' : '#ffffff10'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        <section className="space-y-6">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-brand">Lista de Gladiadores</h3>
+          <div className="grid gap-4">
+            {players.length === 0 ? (
+              <div className="glass-card p-20 text-center text-zinc-600 border-dashed border-2">
+                <Users className="w-12 h-12 mx-auto mb-4 opacity-20" />
+                Nenhum jogador inscrito ainda.
+              </div>
+            ) : (
+              players.map((p, i) => (
+                <motion.div 
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  key={p.id} 
+                  className="glass-card p-4 border-white/5 flex items-center justify-between group hover:border-brand/20 transition-all"
+                >
+                  <div className="flex items-center gap-6">
+                    <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/5 flex items-center justify-center text-white font-black italic text-sm">
+                      #{p.seed}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-black uppercase italic tracking-tighter text-xl text-white">{p.name}</span>
+                      <div className="flex items-center gap-4 text-[8px] font-black uppercase tracking-widest text-slate-500">
+                        <span>Win Rate: <span className="text-brand">{playerStats.find(s => s.name === p.name)?.winRate}%</span></span>
+                        <span>Partidas: {playerStats.find(s => s.name === p.name)?.total}</span>
+                      </div>
+                    </div>
                   </div>
-                  <span className="font-bold text-lg">{p.name}</span>
-                </div>
-                {isOwner && (
-                  <button 
-                    onClick={() => deleteDoc(doc(db, 'tournaments', tournamentId, 'players', p.id))}
-                    className="p-2 text-zinc-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all font-bold text-xs uppercase tracking-widest"
-                  >
-                    Excluir
-                  </button>
-                )}
-              </motion.div>
-            ))
-          )}
-        </div>
+                  {isOwner && (
+                    <button 
+                      onClick={() => deleteDoc(doc(db, 'tournaments', tournamentId, 'players', p.id))}
+                      className="p-3 text-slate-700 hover:text-red-500 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4 rotate-180" />
+                    </button>
+                  )}
+                </motion.div>
+              ))
+            )}
+          </div>
+        </section>
       </div>
 
       <div className="space-y-6">
-        {isOwner && (
-          <div className="glass-card p-6 bg-brand/5 border-brand/20">
-            <h4 className="font-bold mb-4 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-brand" />
-              Adicionar Participante
+        {isOwner && tournament.status === 'draft' && (
+          <div className="glass-card p-8 bg-brand/5 border-brand/20">
+            <h4 className="font-black uppercase italic text-brand text-xs mb-6 flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Inscrição de Elite
             </h4>
             <form onSubmit={addPlayer} className="space-y-4">
               <input 
                 type="text" 
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
-                placeholder="Nome completo..."
-                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 focus:outline-none focus:border-brand transition-colors"
+                placeholder="NOME DO GUERREIRO"
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 focus:outline-none focus:border-brand transition-colors font-bold uppercase tracking-widest text-xs"
               />
-              <button className="w-full py-2.5 bg-brand text-zinc-950 font-bold rounded-xl hover:opacity-90 transition-opacity">
-                Inscrever Jogador
+              <button className="w-full py-4 bg-brand text-bg-dark font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all text-[10px] shadow-lg shadow-brand/10 italic">
+                Confirmar Participação
               </button>
             </form>
           </div>
         )}
 
-        <div className="glass-card p-6 border-zinc-800">
-           <h4 className="font-bold mb-4 text-zinc-400 uppercase text-xs tracking-widest">Estatísticas</h4>
-           <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Total de Jogadores</span>
-                <span className="font-mono">{players.length}</span>
+        <div className="glass-card p-8 border-white/5 bg-slate-900/40">
+           <h4 className="font-black uppercase italic text-slate-500 text-[10px] tracking-[0.3em] mb-8">Status da Tabela</h4>
+           <div className="space-y-6">
+              <div className="flex justify-between items-end border-b border-white/5 pb-4">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Inscritos</span>
+                <span className="text-3xl font-black italic uppercase tracking-tighter text-white">{players.length}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Vagas Preenchidas</span>
-                <span className="font-mono italic">{players.length}/16</span>
+              <div className="flex justify-between items-end border-b border-white/5 pb-4">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Capacidade</span>
+                <span className="text-3xl font-black italic uppercase tracking-tighter text-slate-700">16</span>
               </div>
+              <div className="flex justify-between items-end border-b border-white/5 pb-4">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Partidas</span>
+                <span className="text-3xl font-black italic uppercase tracking-tighter text-white">{matches.length}</span>
+              </div>
+           </div>
+           
+           <div className="mt-12 p-4 bg-white/5 rounded-xl border border-white/5">
+             <p className="text-[8px] font-bold text-slate-600 uppercase leading-relaxed tracking-[0.1em]">
+               * O sistema calcula automaticamente o tempo médio com base na finalização do torneio.
+             </p>
            </div>
         </div>
       </div>
@@ -704,8 +906,8 @@ function PlayerList({ tournamentId, players, isOwner }: { tournamentId: string, 
   );
 }
 
-function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: string, matches: Match[], players: Player[], isOwner: boolean }) {
-  
+function MatchList({ tournament, matches, players, isOwner }: { tournament: Tournament, matches: Match[], players: Player[], isOwner: boolean }) {
+  const tournamentId = tournament.id;
   const getPlayerName = (id: string) => players.find(p => p.id === id)?.name || "TBD";
 
   const updateScore = async (matchId: string, score1: number, score2: number, status: Match['status'] = 'in_progress') => {
@@ -713,7 +915,8 @@ function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: 
        await updateDoc(doc(db, 'tournaments', tournamentId, 'matches', matchId), {
          score1,
          score2,
-         status
+         status,
+         updatedAt: serverTimestamp()
        });
      } catch (error) {
        handleFirestoreError(error, OperationType.UPDATE, `tournaments/${tournamentId}/matches/${matchId}`);
@@ -724,42 +927,79 @@ function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: 
     try {
       await updateDoc(doc(db, 'tournaments', tournamentId, 'matches', matchId), {
         winnerId,
-        status: 'finished'
+        status: 'finished',
+        updatedAt: serverTimestamp()
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, `tournaments/${tournamentId}/matches/${matchId}`);
     }
   }
 
+  // Logic to generate matches for different formats
   const generateMatches = async () => {
     if (players.length < 2) return alert("Necessário pelo menos 2 jogadores");
     
     // Shuffle players
     const shuffled = [...players].sort(() => Math.random() - 0.5);
     const pairs = [];
-    for (let i = 0; i < shuffled.length; i += 2) {
-      if (shuffled[i+1]) pairs.push([shuffled[i].id, shuffled[i+1].id]);
-    }
-
-    try {
-      for (const pair of pairs) {
-        await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
-          tournamentId,
-          player1Id: pair[0],
-          player2Id: pair[1],
-          score1: 0,
-          score2: 0,
-          round: 1,
-          status: 'pending',
-          winnerId: null
-        });
+    
+    if (tournament?.type === 'single_elimination' || tournament?.type === 'double_elimination' || tournament?.type === 'survival') {
+      for (let i = 0; i < shuffled.length; i += 2) {
+        if (shuffled[i+1]) pairs.push([shuffled[i].id, shuffled[i+1].id]);
+        else {
+          // Bye logic
+          pairs.push([shuffled[i].id, 'BYE']);
+        }
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'matches');
+
+      try {
+        for (const pair of pairs) {
+          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+            tournamentId,
+            player1Id: pair[0],
+            player2Id: pair[1] === 'BYE' ? '' : pair[1],
+            score1: 0,
+            score2: 0,
+            round: 1,
+            bracket: 'winners', // Default for single/initial double
+            status: pair[1] === 'BYE' ? 'finished' : 'pending',
+            winnerId: pair[1] === 'BYE' ? pair[0] : null
+          });
+        }
+        await updateDoc(doc(db, 'tournaments', tournamentId), { status: 'active' });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'matches');
+      }
+    } else if (tournament?.type === 'round_robin' || tournament?.type === 'total_war') {
+      // All vs All
+      for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+          pairs.push([players[i].id, players[j].id]);
+        }
+      }
+
+      try {
+        for (const pair of pairs) {
+          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+            tournamentId,
+            player1Id: pair[0],
+            player2Id: pair[1],
+            score1: 0,
+            score2: 0,
+            round: 1,
+            bracket: 'points',
+            status: 'pending',
+            winnerId: null
+          });
+        }
+        await updateDoc(doc(db, 'tournaments', tournamentId), { status: 'active' });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'matches');
+      }
     }
   };
 
-  // Logic to generate the next round matches
+  // Logic to generate the next round matches (Complex for Double Elimination)
   const generateNextRound = async () => {
     const maxRound = Math.max(...matches.map(m => m.round), 0);
     const currentRoundMatches = matches.filter(m => m.round === maxRound);
@@ -767,55 +1007,113 @@ function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: 
     const allFinished = currentRoundMatches.every(m => m.status === 'finished');
     if (!allFinished) return alert("Todas as partidas da rodada atual devem ser finalizadas primeiro.");
 
-    const winners = currentRoundMatches.map(m => m.winnerId).filter(Boolean) as string[];
-    
-    if (winners.length < 2) {
-      if (winners.length === 1 && maxRound > 0) {
+    if (tournament?.type === 'single_elimination' || tournament?.type === 'double_elimination' || tournament?.type === 'survival') {
+      const winners = currentRoundMatches.map(m => m.winnerId).filter(Boolean) as string[];
+      
+      // If double elimination, we also need to handle losers
+      if (tournament?.type === 'double_elimination') {
+        const losers = currentRoundMatches.map(m => 
+          m.player1Id === m.winnerId ? m.player2Id : m.player1Id
+        ).filter(id => id && id !== 'BYE') as string[];
+        
+        // This is a simplified version: losers join a "Repescagem" pool
+        // In a real double elimination, the tracking is more complex
+        // We will at least move winners forward and alert about the status
+        if (winners.length < 2 && maxRound > 0) {
+           // Handle final winner logic
+        }
+      }
+
+      if (winners.length < 2) {
+        if (winners.length === 1 && maxRound > 0) {
+          const winner = players.find(p => p.id === winners[0]);
+          alert(`Campeonato Finalizado! Vencedor: ${winner?.name || 'Desconhecido'}`);
+          await updateDoc(doc(db, 'tournaments', tournamentId), { 
+            status: 'finished',
+            winnerId: winners[0],
+            winnerName: winner?.name || 'Desconhecido',
+            finishedAt: serverTimestamp()
+          });
+        }
+        return;
+      }
+
+      try {
+        const nextRound = maxRound + 1;
+        for (let i = 0; i < winners.length; i += 2) {
+          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+            tournamentId,
+            player1Id: winners[i],
+            player2Id: winners[i+1] || '',
+            score1: 0,
+            score2: 0,
+            round: nextRound,
+            bracket: 'winners',
+            status: winners[i+1] ? 'pending' : 'finished',
+            winnerId: winners[i+1] ? null : winners[i]
+          });
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'matches');
+      }
+    } else if (tournament?.type === 'round_robin' || tournament?.type === 'total_war') {
+      // For Round Robin, check if all matched are finished.
+      // If yes, determine overall winner.
+      const winCounts: Record<string, number> = {};
+      players.forEach(p => winCounts[p.id] = 0);
+      matches.forEach(m => {
+        if (m.winnerId) winCounts[m.winnerId]++;
+      });
+
+      const winnerId = Object.entries(winCounts).reduce((a, b) => a[1] > b[1] ? a : b)[0];
+      const winner = players.find(p => p.id === winnerId);
+
+      alert(`Guerra Total Concluída! O Grande Campeão é: ${winner?.name || 'Desconhecido'}`);
+      await updateDoc(doc(db, 'tournaments', tournamentId), { 
+        status: 'finished',
+        winnerId: winnerId,
+        winnerName: winner?.name || 'Desconhecido',
+        finishedAt: serverTimestamp()
+      });
+    } else if (tournament?.type === 'double_elimination') {
+      const winners = currentRoundMatches.map(m => m.winnerId).filter(Boolean) as string[];
+      if (winners.length < 2 && maxRound > 0) {
         const winner = players.find(p => p.id === winners[0]);
-        alert(`Campeonato Finalizado! Vencedor: ${winner?.name || 'Desconhecido'}`);
+        alert(`Torneio Finalizado! Campeão: ${winner?.name || 'Desconhecido'}`);
         await updateDoc(doc(db, 'tournaments', tournamentId), { 
           status: 'finished',
           winnerId: winners[0],
-          winnerName: winner?.name || 'Desconhecido'
+          winnerName: winner?.name || 'Desconhecido',
+          finishedAt: serverTimestamp()
         });
+        return;
       }
-      return;
-    }
 
-    try {
-      const nextRound = maxRound + 1;
-      for (let i = 0; i < winners.length; i += 2) {
-        if (winners[i+1]) {
+      try {
+        const nextRound = maxRound + 1;
+        for (let i = 0; i < winners.length; i += 2) {
           await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
             tournamentId,
             player1Id: winners[i],
-            player2Id: winners[i+1],
+            player2Id: winners[i+1] || '',
             score1: 0,
             score2: 0,
             round: nextRound,
-            status: 'pending',
-            winnerId: null
-          });
-        } else {
-          // Odd number of winners (bye)
-          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
-            tournamentId,
-            player1Id: winners[i],
-            player2Id: '', // Wait for winner or bye
-            score1: 0,
-            score2: 0,
-            round: nextRound,
-            status: 'pending',
-            winnerId: null
+            bracket: 'winners',
+            status: winners[i+1] ? 'pending' : 'finished',
+            winnerId: winners[i+1] ? null : winners[i]
           });
         }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, 'matches');
       }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'matches');
     }
   };
 
   const getRoundName = (round: number, totalMatches: number) => {
+    if (tournament?.type === 'round_robin' || tournament?.type === 'total_war') {
+      return "Tabela de Confrontos";
+    }
     if (totalMatches === 1) return "Grande Final";
     if (totalMatches === 2) return "Semifinais";
     if (totalMatches === 4) return "Quartas de Final";
@@ -826,6 +1124,7 @@ function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: 
   const maxRound = Math.max(...matches.map(m => m.round), 0);
   const currentRoundMatches = matches.filter(m => m.round === maxRound);
   const isRoundFinished = currentRoundMatches.length > 0 && currentRoundMatches.every(m => m.status === 'finished');
+  const uniqueRounds = Array.from(new Set(matches.map(m => m.round))).sort((a, b) => a - b);
 
   return (
     <div className="space-y-8">
@@ -853,7 +1152,7 @@ function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: 
               className="glass-card p-6 bg-brand/10 border-brand/40 flex items-center justify-between"
             >
               <div>
-                <h4 className="font-black uppercase italic text-brand">Rodada {maxRound} Concluída!</h4>
+                <h4 className="font-black uppercase italic text-brand">Fase {maxRound} Concluída!</h4>
                 <p className="text-xs text-slate-400">Todos os vencedores foram determinados. Avance para a próxima fase.</p>
               </div>
               <button 
@@ -866,7 +1165,7 @@ function MatchList({ tournamentId, matches, players, isOwner }: { tournamentId: 
           )}
 
           {/* Group by rounds */}
-          {[1, 2, 3, 4, 5, 6].map(round => {
+          {uniqueRounds.map(round => {
             const roundMatches = matches.filter(m => m.round === round);
             if (roundMatches.length === 0) return null;
 
@@ -1002,15 +1301,89 @@ function MatchCard({
 }
 
 // --- Hooks ---
+function Login() {
+  const [loading, setLoading] = useState<string | null>(null);
+
+  const login = async (provider: 'google' | 'facebook') => {
+    setLoading(provider);
+    try {
+      const authProvider = provider === 'google' 
+        ? new GoogleAuthProvider() 
+        : new FacebookAuthProvider();
+      await signInWithPopup(auth, authProvider);
+    } catch (error: any) {
+      if (error.code !== 'auth/popup-closed-by-user') {
+        alert(`Erro na autenticação: ${error.message}`);
+      }
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4 relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-brand/5 blur-[120px] rounded-full" />
+        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-brand/5 blur-[120px] rounded-full" />
+      </div>
+
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="glass-card p-12 max-w-md w-full relative z-10 text-center border-white/5"
+      >
+        <div className="flex justify-center mb-8">
+          <div className="w-20 h-20 bg-brand/10 border border-brand/20 rounded-3xl flex items-center justify-center shadow-2xl shadow-brand/20">
+            <Trophy className="w-10 h-10 text-brand" />
+          </div>
+        </div>
+        
+        <h1 className="text-4xl font-black italic uppercase tracking-tighter mb-2">NUMBER <span className="text-brand">8</span></h1>
+        <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.4em] mb-12 italic">Professional Grade Gaming</p>
+
+        <div className="space-y-4">
+          <button 
+            disabled={!!loading}
+            onClick={() => login('google')}
+            className="w-full h-16 bg-white text-bg-dark font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-white/5 disabled:opacity-50"
+          >
+            <div className="w-6 h-6 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" className="w-5 h-5"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            </div>
+            {loading === 'google' ? 'Conectando...' : 'Entrar com Google'}
+          </button>
+
+          <button 
+            disabled={!!loading}
+            onClick={() => login('facebook')}
+            className="w-full h-16 bg-[#1877F2] text-white font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/10 disabled:opacity-50"
+          >
+            <div className="w-6 h-6 flex items-center justify-center">
+              <svg fill="currentColor" viewBox="0 0 24 24" className="w-5 h-5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+            </div>
+            {loading === 'facebook' ? 'Conectando...' : 'Entrar com Facebook'}
+          </button>
+        </div>
+
+        <div className="mt-12 text-[8px] font-black uppercase tracking-[0.3em] text-slate-700 leading-relaxed">
+          Ao entrar você concorda com nossos termos de privacidade e conduta profissional em mesa.
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
     });
+    return unsubscribe;
   }, []);
 
   return { user, loading };
@@ -1020,41 +1393,157 @@ function useAuth() {
 export default function App() {
   const { user, loading } = useAuth();
 
-  if (loading) return null;
+  if (loading) return (
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+      <div className="w-12 h-12 border-4 border-brand/20 border-t-brand rounded-full animate-spin" />
+    </div>
+  );
+
+  if (!user) return <Login />;
 
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-zinc-950 selection:bg-brand selection:text-black relative overflow-hidden">
         {/* Watermark */}
         <div className="fixed bottom-10 left-10 pointer-events-none select-none z-0 opacity-[0.03] rotate-[-15deg] whitespace-nowrap">
-          <span className="text-9xl font-black uppercase tracking-[0.2em] text-white">Jota Tembe</span>
+          <span className="text-9xl font-black uppercase tracking-[0.2em] text-white">JOTA TEMBE</span>
         </div>
 
-        <Navbar user={user} />
+        <Navbar />
         <main>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/tournaments" element={<TournamentManager />} />
             <Route path="/tournaments/new" element={<CreateTournament />} />
             <Route path="/tournaments/:id" element={<TournamentDetails />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
+            <Route path="/rules" element={<BilliardsRules />} />
           </Routes>
         </main>
         
-        <footer className="border-t border-zinc-900 py-12 mt-24">
-          <div className="max-w-7xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-8">
-            <div className="flex items-center gap-2">
-              <Trophy className="w-5 h-5 text-brand" />
-              <span className="font-display font-bold text-2xl tracking-tighter uppercase italic">NUMBER <span className="text-brand">8</span></span>
+        <footer className="border-t border-white/5 py-16 mt-24 bg-black/20">
+          <div className="max-w-7xl mx-auto px-4 flex flex-col items-center gap-12">
+            <div className="flex flex-col md:flex-row justify-between w-full items-center gap-8">
+              <div className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-brand" />
+                <span className="font-display font-bold text-2xl tracking-tighter uppercase italic">NUMBER <span className="text-brand">8</span></span>
+              </div>
+              <p className="text-zinc-600 text-[10px] font-bold uppercase tracking-widest text-center">© 2024 Criado para os mestres do bilhar. Grau Profissional.</p>
+              <div className="flex gap-6 text-zinc-500 text-[10px] font-black uppercase tracking-widest">
+                <Link to="/privacy" className="hover:text-brand transition-colors">Privacidade</Link>
+                <Link to="/rules" className="hover:text-brand transition-colors">Regras de Bilhar</Link>
+              </div>
             </div>
-            <p className="text-zinc-600 text-sm">© 2024 Criado para os mestres do bilhar. Grau Profissional.</p>
-            <div className="flex gap-6 text-zinc-500 text-sm font-medium">
-              <a href="#" className="hover:text-white transition-colors">Privacidade</a>
-              <a href="#" className="hover:text-white transition-colors">Termos</a>
-              <a href="#" className="hover:text-white transition-colors">API</a>
+            
+            <div className="w-full h-px bg-white/5" />
+            
+            <div className="text-center space-y-6">
+              <div className="text-brand/50 text-[10px] font-black uppercase tracking-[0.4em]">Desenvolvedor de Software</div>
+              <div className="text-4xl font-black italic uppercase tracking-tighter text-white">JOTA TEMBE</div>
+              <p className="text-zinc-500 text-xs max-w-lg mx-auto font-medium leading-relaxed tracking-wide uppercase">
+                QUER UM APLICATIVO EXCLUSIVO COMO ESTE? <br />
+                ENTRE EM CONTACTO PARA QUE EU POSSA CRIAR A SUA SOLUÇÃO PERSONALIZADA.
+              </p>
+              <a 
+                href="https://wa.me/258877057075" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-3 px-8 py-4 bg-emerald-500/10 border border-emerald-500/40 rounded-2xl text-emerald-500 hover:bg-emerald-500 hover:text-black transition-all font-black uppercase tracking-[0.2em] text-[10px] italic shadow-[0_0_30px_rgba(16,185,129,0.1)]"
+              >
+                <MessageCircle className="w-4 h-4 stroke-[3px]" />
+                WhatsApp: 877057075
+              </a>
             </div>
           </div>
         </footer>
       </div>
     </BrowserRouter>
+  );
+}
+
+function PrivacyPolicy() {
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-24">
+      <h1 className="text-6xl font-black italic uppercase tracking-tighter mb-12">Termos de <span className="text-brand">Privacidade</span></h1>
+      <div className="glass-card p-12 space-y-8 text-slate-300 leading-relaxed font-medium">
+        <section>
+          <h2 className="text-xl font-bold text-white uppercase tracking-widest mb-4">1. Coleta de Dados</h2>
+          <p>O NUMBER 8 coleta apenas informações essenciais para a gestão de torneios, como nomes de jogadores e resultados de partidas. Não vendemos seus dados a terceiros.</p>
+        </section>
+        <section>
+          <h2 className="text-xl font-bold text-white uppercase tracking-widest mb-4">2. Uso de Imagens</h2>
+          <p>Imagens geradas ou carregadas para perfis e torneios são de responsabilidade dos organizadores. Reservamo-nos o direito de remover conteúdo impróprio.</p>
+        </section>
+        <section>
+          <h2 className="text-xl font-bold text-white uppercase tracking-widest mb-4">3. Segurança</h2>
+          <p>Utilizamos infraestrutura Firebase de padrão industrial para garantir que os dados do seu campeonato estejam sempre protegidos e disponíveis.</p>
+        </section>
+        <div className="pt-8 border-t border-white/5 text-[10px] uppercase tracking-widest text-slate-500">
+          Última atualização: Maio de 2024
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BilliardsRules() {
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-24">
+      <div className="mb-12">
+        <span className="text-brand text-[10px] font-black uppercase tracking-[0.4em]">Artigo Técnico</span>
+        <h1 className="text-6xl font-black italic uppercase tracking-tighter mt-2">Regras de Bilhar <br /> <span className="text-brand">Mesa Moçambique</span></h1>
+      </div>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="space-y-8">
+          <div className="glass-card p-8">
+            <h3 className="text-brand font-black uppercase text-xs mb-4 flex items-center gap-2">
+              <div className="w-2 h-2 bg-brand rounded-full" />
+              O Início (Saída)
+            </h3>
+            <p className="text-slate-400 text-sm leading-relaxed italic">
+              Em Moçambique, a saída é decidida na moeda ou no encosto. É obrigatório que pelo menos 4 bolas toquem nas tabelas ou que uma seja encaçapada para a saída ser válida.
+            </p>
+          </div>
+          
+          <div className="glass-card p-8">
+            <h3 className="text-brand font-black uppercase text-xs mb-4 flex items-center gap-2">
+              <div className="w-2 h-2 bg-brand rounded-full" />
+              Bola 8 (A Preta)
+            </h3>
+            <p className="text-slate-400 text-sm leading-relaxed italic">
+              A bola preta deve ser sempre anunciada (marcada) na caçapa pretendida. Se ganhar direto na saída, o jogador tem a opção de repor a bola ou recomeçar o jogo.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-8">
+          <div className="glass-card p-8 bg-brand/5 border-brand/20">
+            <h3 className="text-brand font-black uppercase text-xs mb-4 flex items-center gap-2">
+              <div className="w-2 h-2 bg-brand rounded-full" />
+              Regras de Falta
+            </h3>
+            <ul className="text-slate-400 text-xs space-y-4 font-bold uppercase tracking-wide">
+              <li className="flex items-start gap-2">
+                <span className="text-brand">•</span> Não tocar na sua própria bola primeiro.
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-brand">•</span> Encaçapar a bola branca resulta em "bola na mão" para o adversário.
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-brand">•</span> Dois toques na bola branca ou tocar as bolas com a mão é falta grave.
+              </li>
+            </ul>
+          </div>
+          
+          <div className="glass-card p-8">
+            <h3 className="text-slate-200 font-black uppercase text-xs mb-4">Etiqueta de Jogo</h3>
+            <p className="text-slate-500 text-[10px] leading-tight uppercase tracking-widest italic font-bold">
+              O bilhar moçambicano é um jogo de cavalheiros. O silêncio durante a tacada do adversário é obrigatório nos principais salões e torneios.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

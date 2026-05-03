@@ -23,9 +23,9 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     function isValidTournament(data) {
       return data.keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
-             data.keys().size() <= 10 && // Allow for some extra non-critical fields
+             data.keys().size() <= 12 && 
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
-             data.type in ['single_elimination', 'double_elimination', 'round_robin'] &&
+             data.type in ['single_elimination', 'double_elimination', 'round_robin', 'survival', 'total_war'] &&
              data.status in ['draft', 'active', 'finished'] &&
              data.createdAt == request.time &&
              data.createdBy == userId();
@@ -33,8 +33,8 @@ service cloud.firestore {
 
     match /tournaments/{tournamentId} {
       allow create: if isVerified() && isValidId(tournamentId) && isValidTournament(incoming());
-      allow get: if true; // Publicly viewable
-      allow list: if true; // Anyone can search for tournaments
+      allow get: if isSignedIn() && resource.data.createdBy == userId();
+      allow list: if isSignedIn() && resource.data.createdBy == userId();
       allow update: if isVerified() && existing().createdBy == userId() && (
         // Only owner can update. Immutable fields check:
         incoming().createdBy == existing().createdBy &&
