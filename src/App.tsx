@@ -1,4 +1,4 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, FormEvent, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate, useParams } from 'react-router-dom';
 import { 
   Trophy, 
@@ -10,11 +10,14 @@ import {
   CircleDot,
   Calendar,
   Settings,
-  LogOut,
-  LogIn,
   Table as TableIcon,
   Crown,
-  MessageCircle
+  Trash2,
+  MessageCircle,
+  ShieldCheck,
+  Info,
+  Gamepad2,
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -29,10 +32,6 @@ import {
 } from 'recharts';
 import { 
   onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  FacebookAuthProvider,
-  signOut,
   User
 } from 'firebase/auth';
 import { 
@@ -87,16 +86,6 @@ interface Match {
 // --- Components ---
 
 function Navbar() {
-  const { user } = useAuth();
-  
-  const handleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (error: any) {
-      console.error("Erro ao sair:", error);
-    }
-  };
-
   return (
     <nav className="border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
@@ -117,34 +106,49 @@ function Navbar() {
           
           <div className="h-4 w-px bg-white/10 hidden sm:block" />
 
-          {user && (
-            <div className="flex items-center gap-4">
-              <div className="flex flex-col items-end hidden md:flex">
-                <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">{user.displayName || 'Mestre Pro'}</span>
-                <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">Status: Online</span>
-              </div>
-              <div className="relative group">
-                <img 
-                  src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
-                  alt="Profile" 
-                  className="w-10 h-10 rounded-xl border border-white/10 group-hover:border-brand/50 transition-all cursor-pointer"
-                  referrerPolicy="no-referrer"
-                />
-                <button 
-                  onClick={handleLogout}
-                  className="absolute -top-1 -right-1 w-5 h-5 bg-zinc-950 border border-white/10 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:border-red-500 transition-all"
-                  title="Sair"
-                >
-                  <LogOut className="w-3 h-3" />
-                </button>
+          <div className="flex items-center gap-4">
+            <div className="flex flex-col items-end hidden md:flex">
+              <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
+                Modo Administrador
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">
+                Status: Sistema Aberto
+              </span>
+            </div>
+            <div className="relative group">
+              <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
+                <Users className="w-5 h-5 text-brand" />
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </nav>
   );
 }
+
+const TOURNAMENT_RULES = {
+  single_elimination: {
+    title: 'Eliminação Simples',
+    rules: 'Mata-mata tradicional. Perdeu uma partida, está fora. O vencedor avança para a próxima fase até a grande final.'
+  },
+  double_elimination: {
+    title: 'Dupla Eliminação',
+    rules: 'Sistema com repescagem. Os competidores têm duas chances: quem perde cai para a "Chave dos Perdedores", onde ainda pode brigar pelo título.'
+  },
+  survival: {
+    title: 'Sobrevivência',
+    rules: 'Formato de extermínio. Os jogadores com menor pontuação em cada rodada são eliminados sucessivamente até restar apenas um sobrevivente.'
+  },
+  total_war: {
+    title: 'Guerra Total',
+    rules: 'Campo de batalha aberto com múltiplos confrontos rápidos e simultâneos. Focado em volume de vitórias e resistência.'
+  },
+  round_robin: {
+    title: 'Pontos Corridos',
+    rules: 'Liga completa onde todos jogam contra todos. Vitórias acumulam pontos e a classificação final define o grande campeão.'
+  }
+};
 
 function Home() {
   return (
@@ -227,22 +231,14 @@ function Home() {
 function TournamentManager() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
 
   const activeTournaments = tournaments.filter(t => t.status !== 'finished');
   const pastTournaments = tournaments.filter(t => t.status === 'finished');
 
-  const totalPlayers = tournaments.length * 8; // Approximation for the UI feel
-
   useEffect(() => {
-    if (!user) {
-      setTournaments([]);
-      return;
-    }
-
+    // Buscando todos os torneios públicos
     const q = query(
       collection(db, 'tournaments'),
-      where('createdBy', '==', user.uid),
       orderBy('createdAt', 'desc')
     );
 
@@ -251,11 +247,12 @@ function TournamentManager() {
       setTournaments(data);
       setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'tournaments');
+      console.error("Erro Firestore:", error);
+      setLoading(false);
     });
 
     return unsubscribe;
-  }, [user]);
+  }, []);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-16">
@@ -448,12 +445,11 @@ function CreateTournament() {
   const [name, setName] = useState('');
   const [type, setType] = useState<Tournament['type']>('single_elimination');
   const [submitting, setSubmitting] = useState(false);
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!user || !name) return;
+    if (!name) return;
 
     setSubmitting(true);
     try {
@@ -462,7 +458,7 @@ function CreateTournament() {
         type,
         status: 'draft',
         createdAt: serverTimestamp(),
-        createdBy: user.uid,
+        createdBy: 'public-admin',
         settings: {
           maxPlayers: 16,
           gamesPerMatch: 1
@@ -521,6 +517,22 @@ function CreateTournament() {
               </button>
             ))}
           </div>
+          
+          {/* Rule Description Box */}
+          <motion.div 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            key={type}
+            className="p-6 rounded-2xl bg-white/5 border border-white/5 flex gap-4 items-start"
+          >
+             <div className="w-10 h-10 rounded-xl bg-brand/10 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5 text-brand" />
+             </div>
+             <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-white mb-1">Regras do Formato: {TOURNAMENT_RULES[type].title}</h4>
+                <p className="text-slate-500 text-xs leading-relaxed">{TOURNAMENT_RULES[type].rules}</p>
+             </div>
+          </motion.div>
         </div>
 
         <button 
@@ -542,7 +554,6 @@ function TournamentDetails() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [activeTab, setActiveTab] = useState<'players' | 'matches' | 'settings'>('players');
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
   
   // Real-time data
   useEffect(() => {
@@ -576,7 +587,7 @@ function TournamentDetails() {
   if (loading) return <div className="p-24 text-center text-zinc-500">Carregando campeonato...</div>;
   if (!tournament) return <div className="p-24 text-center">Torneio não encontrado</div>;
 
-  const isOwner = user?.uid === tournament.createdBy;
+  const isOwner = true;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -597,6 +608,22 @@ function TournamentDetails() {
                 tournament.status === 'active' ? 'bg-brand/10 border-brand/40 text-brand' : 'bg-slate-800 border-white/10 text-slate-400'
               }`}>
                 Estado: {tournament.status === 'active' ? 'Ativo' : tournament.status === 'draft' ? 'Rascunho' : 'Finalizado'}
+              </div>
+              
+              {/* Contextual Rules Indicator */}
+              <div className="group relative px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.2em] border bg-zinc-900 border-white/10 text-slate-300 flex items-center gap-2 cursor-help">
+                <Info className="w-3 h-3 text-brand" />
+                <span>Regras: {TOURNAMENT_RULES[tournament.type].title}</span>
+                
+                <div className="absolute top-full left-0 mt-4 w-64 p-6 glass-card border-brand/20 bg-black/90 backdrop-blur-xl z-[100] opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-300">
+                  <h5 className="text-brand mb-2 text-[10px] font-black italic tracking-widest uppercase">Protocolo de Combate</h5>
+                  <p className="text-slate-300 text-[11px] leading-relaxed normal-case font-medium tracking-normal">
+                    {TOURNAMENT_RULES[tournament.type].rules}
+                  </p>
+                  <div className="mt-4 pt-4 border-t border-white/5 text-[8px] text-slate-500 italic">
+                    * Em caso de dúvidas, consulte o juiz da mesa.
+                  </div>
+                </div>
               </div>
             </div>
             <h1 className="text-6xl font-black italic uppercase tracking-tighter text-white mb-2">{tournament.name}</h1>
@@ -846,7 +873,7 @@ function PlayerList({ tournament, players, matches, isOwner }: { tournament: Tou
                       onClick={() => deleteDoc(doc(db, 'tournaments', tournamentId, 'players', p.id))}
                       className="p-3 text-slate-700 hover:text-red-500 transition-colors"
                     >
-                      <LogOut className="w-4 h-4 rotate-180" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   )}
                 </motion.div>
@@ -1300,139 +1327,8 @@ function MatchCard({
   );
 }
 
-// --- Hooks ---
-function Login() {
-  const [loading, setLoading] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [inIframe, setInIframe] = useState(false);
-
-  useEffect(() => {
-    setInIframe(window.self !== window.top);
-  }, []);
-
-  const login = async (provider: 'google' | 'facebook') => {
-    setLoading(provider);
-    setError(null);
-    try {
-      const authProvider = provider === 'google' 
-        ? new GoogleAuthProvider() 
-        : new FacebookAuthProvider();
-      
-      // Attempt login
-      await signInWithPopup(auth, authProvider);
-    } catch (err: any) {
-      console.error("Login Error:", err);
-      if (err.code === 'auth/popup-blocked') {
-        setError("O navegador bloqueou o popup. Por favor, autorize popups ou abra em uma nova aba.");
-      } else if (err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
-        // User closed, ignore
-      } else if (err.code === 'auth/operation-not-allowed') {
-        setError(`O provedor ${provider} não está ativado no Console do Firebase.`);
-      } else {
-        setError(`Erro: ${err.message}`);
-      }
-    } finally {
-      setLoading(null);
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4 relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-brand/5 blur-[120px] rounded-full" />
-        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-brand/5 blur-[120px] rounded-full" />
-      </div>
-
-      <motion.div 
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="glass-card p-10 max-w-md w-full relative z-10 text-center border-white/5 bg-zinc-950/50 backdrop-blur-3xl"
-      >
-        <div className="flex justify-center mb-8">
-          <div className="w-20 h-20 bg-brand/10 border border-brand/20 rounded-3xl flex items-center justify-center shadow-2xl shadow-brand/20">
-            <Trophy className="w-10 h-10 text-brand" />
-          </div>
-        </div>
-        
-        <h1 className="text-4xl font-black italic uppercase tracking-tighter mb-2">NUMBER <span className="text-brand">8</span></h1>
-        <p className="text-slate-500 text-[10px] font-black uppercase tracking-[0.4em] mb-12 italic">Professional Grade Gaming</p>
-
-        {inIframe && (
-          <div className="mb-8 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] font-bold uppercase tracking-widest leading-relaxed">
-            Dica: Se o login não abrir, use o botão de "Abrir em nova aba" no canto superior direito para melhor estabilidade.
-          </div>
-        )}
-
-        {error && (
-          <motion.div 
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mb-8 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold uppercase tracking-widest leading-relaxed"
-          >
-            {error}
-          </motion.div>
-        )}
-
-        <div className="space-y-4">
-          <button 
-            disabled={!!loading}
-            onClick={() => login('google')}
-            className="w-full h-16 bg-white text-bg-dark font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-white/5 disabled:opacity-50"
-          >
-            <div className="w-6 h-6 flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="w-5 h-5"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-            </div>
-            {loading === 'google' ? 'Conectando...' : 'Entrar com Google'}
-          </button>
-
-          <button 
-            disabled={!!loading}
-            onClick={() => login('facebook')}
-            className="w-full h-16 bg-[#1877F2] text-white font-black uppercase tracking-widest rounded-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-blue-500/10 disabled:opacity-50"
-          >
-            <div className="w-6 h-6 flex items-center justify-center">
-              <svg fill="currentColor" viewBox="0 0 24 24" className="w-5 h-5"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-            </div>
-            {loading === 'facebook' ? 'Conectando...' : 'Entrar com Facebook'}
-          </button>
-        </div>
-
-        <div className="mt-12 text-[8px] font-black uppercase tracking-[0.3em] text-slate-700 leading-relaxed max-w-xs mx-auto">
-          Ao entrar você concorda com nossos termos de privacidade e conduta profissional em mesa.
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
-  return { user, loading };
-}
-
 // --- Main App ---
 export default function App() {
-  const { user, loading } = useAuth();
-
-  if (loading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-      <div className="w-12 h-12 border-4 border-brand/20 border-t-brand rounded-full animate-spin" />
-    </div>
-  );
-
-  if (!user) return <Login />;
-
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-zinc-950 selection:bg-brand selection:text-black relative overflow-hidden">

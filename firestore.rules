@@ -32,10 +32,10 @@ service cloud.firestore {
     }
 
     match /tournaments/{tournamentId} {
-      allow create: if isVerified() && isValidId(tournamentId) && isValidTournament(incoming());
+      allow create: if isSignedIn() && isValidId(tournamentId) && isValidTournament(incoming());
       allow get: if isSignedIn() && resource.data.createdBy == userId();
       allow list: if isSignedIn() && resource.data.createdBy == userId();
-      allow update: if isVerified() && existing().createdBy == userId() && (
+      allow update: if isSignedIn() && existing().createdBy == userId() && (
         // Only owner can update. Immutable fields check:
         incoming().createdBy == existing().createdBy &&
         incoming().createdAt == existing().createdAt &&
@@ -47,7 +47,7 @@ service cloud.firestore {
         incoming().status in ['draft', 'active', 'finished'] &&
         (!('winnerId' in incoming()) || incoming().winnerId is string)
       );
-      allow delete: if isVerified() && existing().createdBy == userId();
+      allow delete: if isSignedIn() && existing().createdBy == userId();
 
       // -----------------------------------------------------------------------
       // Player Rules (Nested)
@@ -59,10 +59,10 @@ service cloud.firestore {
       }
 
       match /players/{playerId} {
-        allow create: if isVerified() && isValidId(playerId) && isValidPlayer(incoming()) && 
+        allow create: if isSignedIn() && isValidId(playerId) && isValidPlayer(incoming()) && 
                         get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
         allow read: if true;
-        allow update, delete: if isVerified() && 
+        allow update, delete: if isSignedIn() && 
                                 get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
       }
 
@@ -76,13 +76,13 @@ service cloud.firestore {
       }
 
       match /matches/{matchId} {
-        allow create: if isVerified() && isValidId(matchId) && isValidMatch(incoming()) &&
+        allow create: if isSignedIn() && isValidId(matchId) && isValidMatch(incoming()) &&
                         get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
         allow read: if true;
-        allow update: if isVerified() && 
+        allow update: if isSignedIn() && 
                         get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId() &&
                         isValidMatch(incoming());
-        allow delete: if isVerified() && 
+        allow delete: if isSignedIn() && 
                         get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
       }
     }
