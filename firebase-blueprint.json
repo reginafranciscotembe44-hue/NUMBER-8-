@@ -11,6 +11,8 @@
         "winnerId": { "type": "string", "description": "UID of the winner player" },
         "createdAt": { "type": "string", "format": "date-time" },
         "createdBy": { "type": "string", "description": "UID of the creator" },
+        "startTime": { "type": "string", "description": "Start time (HH:mm)" },
+        "endTime": { "type": "string", "description": "End time (HH:mm)" },
         "settings": {
           "type": "object",
           "properties": {
@@ -49,12 +51,75 @@
         "scheduledAt": { "type": "string", "format": "date-time" }
       },
       "required": ["tournamentId", "round", "status"]
+    },
+    "User": {
+      "title": "User",
+      "description": "A user profile with roles and personal details.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["player", "owner"] },
+        "age": { "type": "integer" },
+        "playStyle": { "type": "string", "description": "Type of gameplay (e.g., technical, aggressive)" },
+        "bio": { "type": "string" },
+        "locationName": { "type": "string", "description": "Nome da Banca/Local onde se encontra a mesa" },
+        "locationAddress": { "type": "string", "description": "Endereço detalhado ou ponto de referência" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "role", "createdAt"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "A notification alert for a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string", "enum": ["tournament_start", "match_start", "enrollment"] },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "link": { "type": "string" }
+      },
+      "required": ["userId", "title", "message", "type", "read", "createdAt"]
+    },
+    "FriendlyMatch": {
+      "title": "Friendly Match",
+      "description": "A match outside of a tournament.",
+      "type": "object",
+      "properties": {
+        "player1Id": { "type": "string" },
+        "player2Id": { "type": "string" },
+        "player1Name": { "type": "string" },
+        "player2Name": { "type": "string" },
+        "score1": { "type": "number" },
+        "score2": { "type": "number" },
+        "winnerId": { "type": "string" },
+        "status": { "type": "string", "enum": ["requested", "accepted", "finished", "declined"] },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["player1Id", "player2Id", "status", "createdBy", "createdAt"]
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": "Notification",
+      "description": "User specific notifications"
+    },
+    "/friendlyMatches/{matchId}": {
+      "schema": "FriendlyMatch",
+      "description": "Matches outside of tournaments"
+    },
     "/tournaments/{tournamentId}": {
       "schema": "Tournament",
-      "description": "Top-level tournaments"
+      "description": "Top-level tournaments with availability details"
     },
     "/tournaments/{tournamentId}/players/{playerId}": {
       "schema": "Player",
