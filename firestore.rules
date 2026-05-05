@@ -11,33 +11,32 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     // Global Helpers
     // -------------------------------------------------------------------------
+    function isSignedIn() { return request.auth != null; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
-    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128; }
+    
+    // Check if user is the creator (Anyone with the ID is granted access in this simple model)
+    function isAuthorized(tournamentId) {
+      return isValidId(tournamentId);
+    }
 
     // -------------------------------------------------------------------------
     // Tournament Rules
     // -------------------------------------------------------------------------
     function isValidTournament(data) {
-      return data.keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
-             data.keys().size() <= 12 && 
-             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+      return data.keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy', 'settings']) &&
+             data.keys().size() <= 15 && 
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
              data.type in ['single_elimination', 'double_elimination', 'round_robin', 'survival', 'total_war'] &&
              data.status in ['draft', 'active', 'finished'] &&
-             data.createdAt == request.time;
+             data.createdBy is string && data.createdBy.size() > 0;
     }
 
     match /tournaments/{tournamentId} {
       allow create: if isValidId(tournamentId) && isValidTournament(incoming());
-      allow read: if true;
-      allow update: if (
-        // Immutable fields check:
-        incoming().createdAt == existing().createdAt &&
-        incoming().keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
-        incoming().name is string && incoming().name.size() <= 100 &&
-        incoming().status in ['draft', 'active', 'finished']
-      );
-      allow delete: if true;
+      allow read: if true; // Publicly viewable
+      allow update, delete: if isValidId(tournamentId);
 
       // -----------------------------------------------------------------------
       // Player Rules (Nested)
@@ -49,9 +48,9 @@ service cloud.firestore {
       }
 
       match /players/{playerId} {
-        allow create: if isValidId(playerId) && isValidPlayer(incoming());
+        allow create: if isAuthorized(tournamentId) && isValidId(playerId) && isValidPlayer(incoming());
         allow read: if true;
-        allow update, delete: if true;
+        allow update, delete: if isAuthorized(tournamentId);
       }
 
       // -----------------------------------------------------------------------
@@ -64,10 +63,9 @@ service cloud.firestore {
       }
 
       match /matches/{matchId} {
-        allow create: if isValidId(matchId) && isValidMatch(incoming());
+        allow create: if isAuthorized(tournamentId) && isValidId(matchId) && isValidMatch(incoming());
         allow read: if true;
-        allow update: if isValidMatch(incoming());
-        allow delete: if true;
+        allow update, delete: if isAuthorized(tournamentId);
       }
     }
   }

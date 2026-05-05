@@ -10,6 +10,7 @@ import {
   CircleDot,
   Calendar,
   Settings,
+  LogOut,
   Table as TableIcon,
   Crown,
   Trash2,
@@ -32,6 +33,8 @@ import {
 } from 'recharts';
 import { 
   onAuthStateChanged, 
+  signInAnonymously,
+  signOut,
   User
 } from 'firebase/auth';
 import { 
@@ -49,6 +52,24 @@ import {
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { handleFirestoreError, OperationType } from './lib/firebaseUtils';
+import { v4 as uuidv4 } from 'uuid';
+
+// --- Local Identity Utility ---
+const GUEST_ID_KEY = 'n8_guest_id_v2';
+const DISPLAY_NAME_KEY = 'n8_display_name_v2';
+
+const getGuestId = () => {
+  let id = localStorage.getItem(GUEST_ID_KEY);
+  if (!id) {
+    id = `guest_${uuidv4()}`;
+    localStorage.setItem(GUEST_ID_KEY, id);
+  }
+  return id;
+};
+
+const getDisplayName = () => {
+  return localStorage.getItem(DISPLAY_NAME_KEY) || 'Mestre de Bilhar';
+};
 
 // --- Types ---
 interface Tournament {
@@ -86,6 +107,8 @@ interface Match {
 // --- Components ---
 
 function Navbar() {
+  const { guestId, displayName } = useAuth();
+  
   return (
     <nav className="border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
@@ -107,18 +130,16 @@ function Navbar() {
           <div className="h-4 w-px bg-white/10 hidden sm:block" />
 
           <div className="flex items-center gap-4">
-            <div className="flex flex-col items-end hidden md:flex">
-              <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
-                Modo Administrador
-              </span>
-              <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">
-                Status: Sistema Aberto
-              </span>
+            <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
+              <Users className="w-5 h-5 text-brand" />
             </div>
-            <div className="relative group">
-              <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
-                <Users className="w-5 h-5 text-brand" />
-              </div>
+            <div className="flex flex-col hidden md:flex">
+              <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
+                {displayName}
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-zinc-500 leading-none mt-1">
+                ID Local: {guestId.slice(-8)}
+              </span>
             </div>
           </div>
         </div>
@@ -231,14 +252,15 @@ function Home() {
 function TournamentManager() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
+  const { guestId } = useAuth();
 
   const activeTournaments = tournaments.filter(t => t.status !== 'finished');
   const pastTournaments = tournaments.filter(t => t.status === 'finished');
 
   useEffect(() => {
-    // Buscando todos os torneios públicos
     const q = query(
       collection(db, 'tournaments'),
+      where('createdBy', '==', guestId),
       orderBy('createdAt', 'desc')
     );
 
@@ -252,7 +274,7 @@ function TournamentManager() {
     });
 
     return unsubscribe;
-  }, []);
+  }, [guestId]);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-16">
@@ -366,6 +388,8 @@ function TournamentManager() {
 }
 
 function TournamentCard({ t, variant = 'active' }: { t: Tournament, variant?: 'active' | 'history' }) {
+  const organizerName = "Organizador Local";
+  
   return (
     <Link 
       to={`/tournaments/${t.id}`} 
@@ -390,9 +414,12 @@ function TournamentCard({ t, variant = 'active' }: { t: Tournament, variant?: 'a
           }`}>
             {t.status === 'active' ? 'Ao Vivo' : t.status === 'draft' ? 'Rascunho' : 'Concluído'}
           </div>
-          <span className="text-[10px] text-slate-600 font-mono font-bold tracking-widest uppercase">
-            {t.createdAt?.toDate ? new Date(t.createdAt.toDate()).toLocaleDateString('pt-BR') : 'SINCE DRAFT'}
-          </span>
+          <div className="flex flex-col items-end">
+             <span className="text-[10px] text-slate-600 font-mono font-bold tracking-widest uppercase">
+              {t.createdAt?.toDate ? new Date(t.createdAt.toDate()).toLocaleDateString('pt-BR') : 'SINCE DRAFT'}
+            </span>
+            <span className="text-[7px] text-brand/40 font-black uppercase tracking-widest mt-1">Organizado por: {organizerName}</span>
+          </div>
         </div>
         
         <h3 className={`${variant === 'active' ? 'text-4xl' : 'text-xl'} font-black italic uppercase tracking-tighter group-hover:text-brand transition-colors mb-2 leading-[0.9]`}>{t.name}</h3>
@@ -445,6 +472,7 @@ function CreateTournament() {
   const [name, setName] = useState('');
   const [type, setType] = useState<Tournament['type']>('single_elimination');
   const [submitting, setSubmitting] = useState(false);
+  const { guestId } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
@@ -458,7 +486,7 @@ function CreateTournament() {
         type,
         status: 'draft',
         createdAt: serverTimestamp(),
-        createdBy: 'public-admin',
+        createdBy: guestId,
         settings: {
           maxPlayers: 16,
           gamesPerMatch: 1
@@ -549,6 +577,7 @@ function CreateTournament() {
 
 function TournamentDetails() {
   const { id } = useParams();
+  const { guestId } = useAuth();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
@@ -584,10 +613,10 @@ function TournamentDetails() {
     };
   }, [id]);
 
-  if (loading) return <div className="p-24 text-center text-zinc-500">Carregando campeonato...</div>;
-  if (!tournament) return <div className="p-24 text-center">Torneio não encontrado</div>;
+  if (loading) return <div className="p-24 text-center text-zinc-500 font-black uppercase tracking-[0.4em] animate-pulse">Estabelecendo Conexão Tática...</div>;
+  if (!tournament) return <div className="p-24 text-center text-zinc-500 font-black uppercase tracking-[0.4em]">Campo de Batalha não Encontrado</div>;
 
-  const isOwner = true;
+  const isOwner = guestId === tournament.createdBy;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -1327,16 +1356,30 @@ function MatchCard({
   );
 }
 
+// --- Authentication Components ---
+// --- Authentication Components ---
+// Removed Login components for simplicity as requested
+
+function useAuth() {
+  const [guestId] = useState(() => getGuestId());
+  const [displayName] = useState(() => getDisplayName());
+
+  return { guestId, displayName, loading: false };
+}
+
 // --- Main App ---
 export default function App() {
+  const { loading } = useAuth();
+
+  if (loading) return (
+    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+       <div className="text-brand animate-pulse font-black uppercase tracking-[0.5em]">Inicializando Sistemas...</div>
+    </div>
+  );
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-zinc-950 selection:bg-brand selection:text-black relative overflow-hidden">
-        {/* Watermark */}
-        <div className="fixed bottom-10 left-10 pointer-events-none select-none z-0 opacity-[0.03] rotate-[-15deg] whitespace-nowrap">
-          <span className="text-9xl font-black uppercase tracking-[0.2em] text-white">JOTA TEMBE</span>
-        </div>
-
         <Navbar />
         <main>
           <Routes>
