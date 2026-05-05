@@ -10,7 +10,6 @@ import {
   CircleDot,
   Calendar,
   Settings,
-  LogOut,
   Table as TableIcon,
   Crown,
   Trash2,
@@ -18,16 +17,7 @@ import {
   ShieldCheck,
   Info,
   Gamepad2,
-  ShieldAlert,
-  ArrowLeft,
-  Target,
-  Bell,
-  BellRing,
-  X,
-  User as UserIcon,
-  Sword,
-  Search,
-  MapPin
+  ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -42,9 +32,6 @@ import {
 } from 'recharts';
 import { 
   onAuthStateChanged, 
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
   User
 } from 'firebase/auth';
 import { 
@@ -56,12 +43,9 @@ import {
   serverTimestamp,
   doc,
   getDoc,
-  setDoc,
   updateDoc,
   deleteDoc,
-  getDocs,
-  orderBy,
-  limit
+  orderBy
 } from 'firebase/firestore';
 import { auth, db } from './lib/firebase';
 import { handleFirestoreError, OperationType } from './lib/firebaseUtils';
@@ -77,8 +61,6 @@ interface Tournament {
   createdAt: any;
   finishedAt?: any;
   createdBy: string;
-  startTime?: string;
-  endTime?: string;
 }
 
 interface Player {
@@ -101,55 +83,9 @@ interface Match {
   updatedAt?: any;
 }
 
-interface FriendlyMatch {
-  id: string;
-  player1Id: string;
-  player1Name: string;
-  player2Id: string;
-  player2Name: string;
-  score1: number;
-  score2: number;
-  winnerId: string | null;
-  createdBy: string;
-  createdAt: any;
-  status: 'requested' | 'accepted' | 'finished' | 'declined';
-}
-
-type UserRole = 'player' | 'owner';
-
-interface AppUser extends User {
-  role?: UserRole;
-  age?: number;
-  playStyle?: string;
-  bio?: string;
-}
-
-interface UserNotification {
-  id: string;
-  userId: string;
-  title: string;
-  message: string;
-  type: 'tournament_start' | 'match_start' | 'enrollment';
-  read: boolean;
-  createdAt: any;
-  link?: string;
-}
-
 // --- Components ---
 
-function Navbar({ onShowProfile }: { onShowProfile: (id: string) => void }) {
-  const { user, logout } = useAuth();
-  const { notifications, unreadCount, markAsRead, clearAll } = useNotifications();
-  const [showNotifications, setShowNotifications] = useState(false);
-  
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (error: any) {
-      console.error("Erro ao sair:", error);
-    }
-  };
-
+function Navbar() {
   return (
     <nav className="border-b border-white/5 bg-black/40 backdrop-blur-md sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
@@ -165,131 +101,26 @@ function Navbar({ onShowProfile }: { onShowProfile: (id: string) => void }) {
 
         <div className="flex items-center gap-4 md:gap-8">
           <Link to="/tournaments" className="hidden sm:block text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 hover:text-brand transition-colors">
-            Arenas
-          </Link>
-          <Link to="/friendly" className="hidden sm:block text-[10px] uppercase tracking-[0.2em] font-black text-slate-400 hover:text-brand transition-colors">
-            Amistosos
+            Painel Geral
           </Link>
           
           <div className="h-4 w-px bg-white/10 hidden sm:block" />
 
-          {user && (
-            <div className="flex items-center gap-4">
-              {/* Notification Center */}
-              <div className="relative mr-2">
-                <button 
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  className="relative p-2.5 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-all group"
-                >
-                  {unreadCount > 0 ? (
-                    <BellRing className="w-5 h-5 text-brand animate-bounce" />
-                  ) : (
-                    <Bell className="w-5 h-5 text-slate-500 group-hover:text-white" />
-                  )}
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-brand text-bg-dark text-[10px] font-black rounded-full flex items-center justify-center border-2 border-zinc-950">
-                      {unreadCount}
-                    </span>
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {showNotifications && (
-                    <>
-                      <div 
-                        className="fixed inset-0 z-40" 
-                        onClick={() => setShowNotifications(false)} 
-                      />
-                      <motion.div 
-                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                        className="absolute top-14 right-0 w-80 bg-zinc-900 border border-white/10 rounded-2xl shadow-2xl z-50 overflow-hidden"
-                      >
-                        <div className="p-4 border-b border-white/5 flex items-center justify-between bg-white/5">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-white">Centro de Comando</span>
-                          <button 
-                            onClick={clearAll}
-                            className="text-[8px] font-black uppercase tracking-widest text-slate-500 hover:text-brand"
-                          >
-                            Limpar Tudo
-                          </button>
-                        </div>
-                        <div className="max-h-96 overflow-y-auto custom-scrollbar">
-                          {notifications.length === 0 ? (
-                            <div className="p-8 text-center text-slate-700">
-                              <Bell className="w-8 h-8 opacity-20 mx-auto mb-3" />
-                              <p className="text-[10px] font-bold uppercase tracking-widest">Sem Alertas</p>
-                            </div>
-                          ) : (
-                            notifications.map(n => (
-                              <div 
-                                key={n.id} 
-                                onClick={() => {
-                                  markAsRead(n.id);
-                                  if (n.link) setShowNotifications(false);
-                                }}
-                                className={`p-4 border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer relative ${!n.read ? 'bg-brand/5 border-l-2 border-l-brand' : ''}`}
-                              >
-                                <p className="text-[11px] font-black uppercase italic tracking-tight text-white mb-0.5">{n.title}</p>
-                                <p className="text-[9px] font-medium text-slate-400 leading-relaxed uppercase tracking-wider">{n.message}</p>
-                                <span className="text-[7px] font-bold text-slate-600 mt-2 block uppercase tracking-widest">
-                                  {n.createdAt?.toDate ? new Date(n.createdAt.toDate()).toLocaleTimeString() : 'Recentemente'}
-                                </span>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              <div 
-                onClick={() => onShowProfile(user.uid)}
-                className="flex flex-col items-end hidden md:flex cursor-pointer hover:opacity-80 transition-opacity"
-              >
-                <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
-                  {user.displayName || 'Operador N8'}
-                </span>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-[7px] font-black uppercase tracking-[0.2em] px-1.5 py-0.5 rounded-sm ${
-                    user.role === 'owner' ? 'bg-brand text-bg-dark' : 'bg-emerald-500/20 text-emerald-500 border border-emerald-500/30'
-                  }`}>
-                    {user.role === 'owner' ? 'Dono da Mesa' : 'Jogador'}
-                  </span>
-                  <span className="text-[8px] font-bold uppercase tracking-widest text-slate-500 leading-none">
-                    {user.age ? `${user.age} anos` : 'Online'}
-                  </span>
-                </div>
-              </div>
-              <div 
-                onClick={() => onShowProfile(user.uid)}
-                className="relative group cursor-pointer"
-              >
-                {user.photoURL ? (
-                  <img 
-                    src={user.photoURL} 
-                    alt="Profile" 
-                    className="w-10 h-10 rounded-xl border border-white/10 group-hover:border-brand/40 transition-all cursor-pointer shadow-lg"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
-                    <Users className="w-5 h-5 text-brand" />
-                  </div>
-                )}
-                <button 
-                  onClick={(e) => { e.stopPropagation(); handleLogout(); }}
-                  className="absolute -top-1 -right-1 w-5 h-5 bg-zinc-950 border border-white/10 rounded-full flex items-center justify-center text-slate-500 hover:text-red-500 hover:border-red-500 transition-all shadow-lg"
-                  title="Sair"
-                >
-                  <LogOut className="w-3 h-3" />
-                </button>
+          <div className="flex items-center gap-4">
+            <div className="flex flex-col items-end hidden md:flex">
+              <span className="text-[10px] font-black uppercase tracking-widest text-white leading-none">
+                Modo Administrador
+              </span>
+              <span className="text-[8px] font-bold uppercase tracking-widest text-brand leading-none mt-1">
+                Status: Sistema Aberto
+              </span>
+            </div>
+            <div className="relative group">
+              <div className="w-10 h-10 rounded-xl border border-white/10 bg-brand/5 flex items-center justify-center">
+                <Users className="w-5 h-5 text-brand" />
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
     </nav>
@@ -320,77 +151,8 @@ const TOURNAMENT_RULES = {
 };
 
 function Home() {
-  const { user } = useAuth();
-  const { requestPermission } = useNotifications();
-  const [todayTournaments, setTodayTournaments] = useState<Tournament[]>([]);
-  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-
-  useEffect(() => {
-    if (user && "Notification" in window && Notification.permission === "default") {
-      const timer = setTimeout(() => setShowPermissionPrompt(true), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    const q = query(
-      collection(db, 'tournaments'),
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc'),
-      limit(3)
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setTodayTournaments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tournament)));
-    });
-    return unsubscribe;
-  }, []);
-
   return (
-    <div className="flex flex-col items-center relative w-full">
-      {/* Permission Prompt */}
-      <AnimatePresence>
-        {showPermissionPrompt && (
-          <motion.div 
-            initial={{ y: 100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 100, opacity: 0 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-2rem)] max-w-md"
-          >
-            <div className="glass-card p-6 border-brand/20 bg-zinc-900/90 backdrop-blur-2xl flex flex-col gap-4 shadow-2xl">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-brand/10 border border-brand/20 rounded-xl flex items-center justify-center">
-                  <BellRing className="text-brand w-6 h-6 animate-pulse" />
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-black uppercase tracking-widest text-white italic">Ativar Alertas Push?</h4>
-                  <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest leading-tight mt-1">Seja notificado no início das partidas e torneios.</p>
-                </div>
-                <button onClick={() => setShowPermissionPrompt(false)} className="p-2 text-slate-700 hover:text-white">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="flex gap-3">
-                <button 
-                  onClick={() => {
-                    requestPermission();
-                    setShowPermissionPrompt(false);
-                  }}
-                  className="flex-1 py-3 bg-brand text-bg-dark font-black uppercase text-[10px] tracking-[0.2em] italic rounded-lg hover:scale-[1.02] active:scale-95 transition-all"
-                >
-                  Ativar Notificações
-                </button>
-                <button 
-                  onClick={() => setShowPermissionPrompt(false)}
-                  className="px-6 py-3 border border-white/10 text-slate-400 font-black uppercase text-[10px] tracking-[0.2em] italic rounded-lg hover:bg-white/5 transition-all"
-                >
-                  Agora Não
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
+    <div className="flex flex-col items-center relative">
       <section className="w-full min-h-[90vh] flex flex-col items-center justify-center px-6 pt-12 pb-24 relative overflow-hidden">
         {/* Background elements */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-brand/5 blur-[120px] rounded-full pointer-events-none" />
@@ -424,29 +186,16 @@ function Home() {
           </p>
 
           <div className="flex flex-col sm:flex-row gap-8 items-center justify-center">
-            {user?.role === 'owner' ? (
-              <Link 
-                to="/tournaments/new" 
-                className="group relative px-12 py-6 bg-brand text-zinc-950 font-black uppercase italic tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(var(--brand-rgb),0.2)]"
-              >
-                <div className="relative z-10 flex items-center gap-3 text-sm">
-                  <Plus className="w-5 h-5 stroke-[3px]" />
-                  Criar Arena
-                </div>
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-              </Link>
-            ) : (
-              <Link 
-                to="/tournaments" 
-                className="group relative px-12 py-6 bg-emerald-500 text-zinc-950 font-black uppercase italic tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(16,185,129,0.2)]"
-              >
-                <div className="relative z-10 flex items-center gap-3 text-sm">
-                  <Trophy className="w-5 h-5 stroke-[3px]" />
-                  Entrar no Torneio
-                </div>
-                <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
-              </Link>
-            )}
+            <Link 
+              to="/tournaments/new" 
+              className="group relative px-12 py-6 bg-brand text-zinc-950 font-black uppercase italic tracking-[0.2em] rounded-2xl overflow-hidden transition-all hover:scale-105 active:scale-95 shadow-[0_0_50px_rgba(var(--brand-rgb),0.2)]"
+            >
+              <div className="relative z-10 flex items-center gap-3 text-sm">
+                <Plus className="w-5 h-5 stroke-[3px]" />
+                Criar Arena
+              </div>
+              <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+            </Link>
             
             <Link 
               to="/tournaments" 
@@ -464,9 +213,9 @@ function Home() {
         <div className="glass-card grid grid-cols-2 md:grid-cols-4 p-8 gap-8 items-center bg-white/5 border-white/10">
           {[
             { label: 'Partidas Ativas', val: '24' },
-            { label: 'Jogadores Pró', val: todayTournaments.length > 0 ? todayTournaments.reduce((acc, t) => acc + 12, 0) : '128' },
+            { label: 'Jogadores Pró', val: '128' },
             { label: 'Premiação Total', val: '$12.5k' },
-            { label: 'Mesas ao Vivo', val: String(todayTournaments.length).padStart(2, '0') }
+            { label: 'Mesas ao Vivo', val: '08' }
           ].map((stat, i) => (
             <div key={i} className="text-center md:text-left">
               <div className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-1">{stat.label}</div>
@@ -475,34 +224,6 @@ function Home() {
           ))}
         </div>
       </div>
-
-      {/* Today's Events */}
-      {todayTournaments.length > 0 && (
-        <section className="w-full max-w-7xl px-4 py-24 relative z-10">
-          <div className="flex flex-col md:flex-row items-end justify-between mb-16 gap-8 text-center md:text-left">
-            <div>
-              <div className="flex items-center gap-3 mb-4 justify-center md:justify-start">
-                <span className="w-8 h-px bg-brand"></span>
-                <span className="text-[10px] uppercase tracking-[0.4em] font-black text-brand italic">Protocolo de Emergência</span>
-              </div>
-              <h2 className="text-5xl font-black uppercase italic tracking-tighter text-white">Arenas Ativas <span className="text-brand">Hoje</span></h2>
-              <p className="text-slate-500 text-sm uppercase tracking-widest font-bold mt-2 italic">Jogadores em campo aguardando novos desafios</p>
-            </div>
-            
-            <Link to="/tournaments" className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500 hover:text-white transition-colors flex items-center gap-2">
-              Ver Todos <ChevronRight className="w-4 h-4" />
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {todayTournaments.map(t => (
-              <div key={t.id}>
-                <TournamentCard t={t} />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
     </div>
   );
 }
@@ -510,28 +231,16 @@ function Home() {
 function TournamentManager() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
-  const { user } = useAuth();
 
   const activeTournaments = tournaments.filter(t => t.status !== 'finished');
   const pastTournaments = tournaments.filter(t => t.status === 'finished');
 
   useEffect(() => {
-    if (!user) return;
-
-    let q;
-    if (user.role === 'owner') {
-      q = query(
-        collection(db, 'tournaments'),
-        where('createdBy', '==', user.uid),
-        orderBy('createdAt', 'desc')
-      );
-    } else {
-      q = query(
-        collection(db, 'tournaments'),
-        where('status', 'in', ['active', 'finished']),
-        orderBy('createdAt', 'desc')
-      );
-    }
+    // Buscando todos os torneios públicos
+    const q = query(
+      collection(db, 'tournaments'),
+      orderBy('createdAt', 'desc')
+    );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Tournament));
@@ -566,15 +275,13 @@ function TournamentManager() {
              <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 mb-1">Média de Inscritos</span>
              <span className="text-2xl font-black italic uppercase italic tracking-tighter text-white">8/16</span>
           </div>
-          {user?.role === 'owner' && (
-            <Link 
-              to="/tournaments/new" 
-              className="px-10 py-5 bg-brand text-bg-dark font-black uppercase italic tracking-[0.1em] rounded-2xl flex items-center gap-3 hover:scale-105 active:scale-95 transition-all text-xs shadow-xl shadow-brand/10 shadow-[0_0_40px_rgba(var(--brand-rgb),0.2)]"
-            >
-              <Plus className="w-5 h-5 stroke-[3px]" />
-              Nova Temporada
-            </Link>
-          )}
+          <Link 
+            to="/tournaments/new" 
+            className="px-10 py-5 bg-brand text-bg-dark font-black uppercase italic tracking-[0.1em] rounded-2xl flex items-center gap-3 hover:scale-105 active:scale-95 transition-all text-xs shadow-xl shadow-brand/10 shadow-[0_0_40px_rgba(var(--brand-rgb),0.2)]"
+          >
+            <Plus className="w-5 h-5 stroke-[3px]" />
+            Nova Temporada
+          </Link>
         </div>
       </header>
 
@@ -658,20 +365,14 @@ function TournamentManager() {
   );
 }
 
-interface TournamentCardProps {
-  t: Tournament;
-  variant?: 'active' | 'history';
-}
-
-function TournamentCard({ t, variant = 'active' }: TournamentCardProps) {
-  const { user } = useAuth();
+function TournamentCard({ t, variant = 'active' }: { t: Tournament, variant?: 'active' | 'history' }) {
   return (
     <Link 
       to={`/tournaments/${t.id}`} 
       className={`glass-card group transition-all flex flex-col justify-between relative overflow-hidden ${
         variant === 'active' 
-          ? 'p-10 border-white/5 hover:border-brand/40 min-h-[20rem] bg-slate-900/40 shadow-2xl shadow-black/40' 
-          : 'p-6 border-white/5 hover:border-white/20 min-h-[14rem] bg-slate-900/20'
+          ? 'p-10 border-white/5 hover:border-brand/40 min-h-[16rem] bg-slate-900/40 shadow-2xl shadow-black/40' 
+          : 'p-6 border-white/5 hover:border-white/20 min-h-[12rem] bg-slate-900/20'
       }`}
     >
       <div className={`absolute top-0 right-0 w-48 h-48 blur-[100px] -translate-y-1/2 translate-x-1/2 transition-opacity duration-700 pointer-events-none ${
@@ -682,20 +383,12 @@ function TournamentCard({ t, variant = 'active' }: TournamentCardProps) {
       
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-8">
-          <div className="flex flex-col gap-1">
-            <div className={`px-4 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.3em] border self-start ${
-              t.status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
-              t.status === 'finished' ? 'bg-slate-800 border-white/5 text-slate-500' : 
-              'bg-amber-400/10 border-amber-400/20 text-amber-400'
-            }`}>
-              {t.status === 'active' ? 'Ao Vivo' : t.status === 'draft' ? 'Rascunho' : 'Concluído'}
-            </div>
-            {t.startTime && (
-              <span className="text-[10px] font-black tracking-widest text-brand uppercase mt-2 flex items-center gap-2">
-                <Calendar className="w-3 h-3" />
-                {t.startTime} - {t.endTime || '??:??'}
-              </span>
-            )}
+          <div className={`px-4 py-1 rounded-full text-[8px] font-black uppercase tracking-[0.3em] border ${
+            t.status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
+            t.status === 'finished' ? 'bg-slate-800 border-white/5 text-slate-500' : 
+            'bg-amber-400/10 border-amber-400/20 text-amber-400'
+          }`}>
+            {t.status === 'active' ? 'Ao Vivo' : t.status === 'draft' ? 'Rascunho' : 'Concluído'}
           </div>
           <span className="text-[10px] text-slate-600 font-mono font-bold tracking-widest uppercase">
             {t.createdAt?.toDate ? new Date(t.createdAt.toDate()).toLocaleDateString('pt-BR') : 'SINCE DRAFT'}
@@ -716,14 +409,6 @@ function TournamentCard({ t, variant = 'active' }: TournamentCardProps) {
             }
           </p>
         </div>
-
-        {user?.role === 'player' && t.status === 'active' && (
-          <div className="mt-6 flex items-center gap-2">
-             <div className="flex-1 h-px bg-emerald-500/20" />
-             <span className="text-[8px] font-black uppercase tracking-[0.4em] text-emerald-500 animate-pulse">Desafio Ativo</span>
-             <div className="flex-1 h-px bg-emerald-500/20" />
-          </div>
-        )}
 
         {t.winnerId && (
           <div className="mt-10 pt-6 border-t border-white/5 flex items-center gap-4">
@@ -756,66 +441,29 @@ function TournamentCard({ t, variant = 'active' }: TournamentCardProps) {
   );
 }
 
-const notifyPlayer = async (userId: string, title: string, message: string, type: 'tournament_start' | 'match_start' | 'enrollment', link?: string) => {
-  try {
-    await addDoc(collection(db, 'users', userId, 'notifications'), {
-      userId,
-      title,
-      message,
-      type,
-      read: false,
-      createdAt: serverTimestamp(),
-      link
-    });
-  } catch (e) {
-    console.error("Notification Error:", e);
-  }
-};
-
 function CreateTournament() {
   const [name, setName] = useState('');
   const [type, setType] = useState<Tournament['type']>('single_elimination');
-  const [startTime, setStartTime] = useState('19:00');
-  const [endTime, setEndTime] = useState('22:00');
   const [submitting, setSubmitting] = useState(false);
-  const { user } = useAuth();
   const navigate = useNavigate();
-
-  if (user?.role !== 'owner') {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-24 text-center">
-        <ShieldAlert className="w-16 h-16 text-brand mx-auto mb-6" />
-        <h2 className="text-3xl font-black uppercase italic tracking-tighter text-white mb-4">Acesso Restrito</h2>
-        <p className="text-slate-500 text-sm uppercase tracking-widest font-bold mb-8">Apenas Donos da Mesa podem iniciar novos torneios.</p>
-        <Link to="/tournaments" className="px-8 py-4 bg-brand text-bg-dark font-black uppercase tracking-widest rounded-xl text-[10px] italic">
-          Voltar para Painel
-        </Link>
-      </div>
-    );
-  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name || !user) return;
+    if (!name) return;
 
     setSubmitting(true);
     try {
       const docRef = await addDoc(collection(db, 'tournaments'), {
         name,
         type,
-        status: 'active',
+        status: 'draft',
         createdAt: serverTimestamp(),
-        createdBy: user.uid,
-        startTime,
-        endTime,
+        createdBy: 'public-admin',
         settings: {
           maxPlayers: 16,
           gamesPerMatch: 1
         }
       });
-      // Notify Owner
-      await notifyPlayer(user.uid, 'Arena Ativada', `Sua arena "${name}" está online!`, 'tournament_start', `/tournaments/${docRef.id}`);
-      
       navigate(`/tournaments/${docRef.id}`);
     } catch (error) {
        handleFirestoreError(error, OperationType.WRITE, 'tournaments');
@@ -887,60 +535,24 @@ function CreateTournament() {
           </motion.div>
         </div>
 
-        <div className="space-y-6">
-          <div className="flex items-center gap-3">
-            <span className="w-8 h-px bg-brand"></span>
-            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-brand italic">Disponibilidade da Arena</label>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Início do Evento</label>
-            <input 
-              type="time" 
-              required
-              value={startTime}
-              onChange={e => setStartTime(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand transition-colors text-xl font-bold text-white shadow-inner"
-            />
-          </div>
-          <div className="space-y-4">
-            <label className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">Término Previsto</label>
-            <input 
-              type="time" 
-              required
-              value={endTime}
-              onChange={e => setEndTime(e.target.value)}
-              className="w-full bg-black/40 border border-white/10 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand transition-colors text-xl font-bold text-white shadow-inner"
-            />
-          </div>
-        </div>
-      </div>
-
         <button 
           disabled={submitting}
-          type="submit"
-          className="w-full py-8 bg-brand text-zinc-950 font-black uppercase italic tracking-[0.3em] rounded-2xl hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-brand/20 flex items-center justify-center gap-4 text-lg"
+          className="w-full py-5 bg-brand text-bg-dark font-black uppercase tracking-[0.3em] rounded-2xl hover:scale-[1.02] active:scale-100 transition-all text-sm disabled:opacity-50 flex items-center justify-center gap-3 neon-border shadow-lg shadow-brand/20"
         >
-          {submitting ? 'Ativando Arena...' : (
-            <>
-              Ativar Arena Hoje
-              <Plus className="w-6 h-6 stroke-[4px]" />
-            </>
-          )}
+          {submitting ? 'PROCESSANDO...' : 'Inicializar Torneio'}
+          <ChevronRight className="w-5 h-5 stroke-[4px]" />
         </button>
       </form>
     </div>
   );
 }
 
-function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => void }) {
+function TournamentDetails() {
   const { id } = useParams();
-  const { user } = useAuth();
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [activeTab, setActiveTab] = useState<'bracket' | 'players' | 'matches' | 'stats' | 'settings'>('bracket');
-  const [showSettings, setShowSettings] = useState(false);
+  const [activeTab, setActiveTab] = useState<'players' | 'matches' | 'settings'>('players');
   const [loading, setLoading] = useState(true);
   
   // Real-time data
@@ -975,46 +587,10 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
   if (loading) return <div className="p-24 text-center text-zinc-500">Carregando campeonato...</div>;
   if (!tournament) return <div className="p-24 text-center">Torneio não encontrado</div>;
 
-  const isOwner = user?.uid === tournament.createdBy;
-  const isPlayer = user?.role === 'player';
-  const isEnrolled = players.some(p => p.id === user?.uid || p.name === user?.displayName);
-
-  const joinTournament = async () => {
-    if (!user || !id) return;
-    try {
-      await setDoc(doc(db, 'tournaments', id, 'players', user.uid), {
-        name: user.displayName,
-        age: user.age || null,
-        playStyle: user.playStyle || 'casual',
-        tournamentId: id,
-        seed: players.length + 1,
-        status: 'active',
-        isGuest: false
-      });
-
-      // Send Notification to self (Confirmation)
-      await addDoc(collection(db, 'users', user.uid, 'notifications'), {
-        userId: user.uid,
-        title: 'Inscrição Confirmada',
-        message: `Você entrou no torneio ${tournament.name}. Prepare seu taco!`,
-        type: 'enrollment',
-        read: false,
-        createdAt: serverTimestamp(),
-        link: `/tournaments/${id}`
-      });
-    } catch (error) {
-       handleFirestoreError(error, OperationType.WRITE, `tournaments/${id}/players`);
-    }
-  };
+  const isOwner = true;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 relative">
-      <TournamentSettingsModal 
-        isOpen={showSettings} 
-        onClose={() => setShowSettings(false)} 
-        tournament={tournament} 
-      />
-
+    <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-16 relative">
         <div className="absolute -top-12 -left-12 w-48 h-48 bg-brand/10 blur-[100px] rounded-full pointer-events-none" />
@@ -1066,12 +642,6 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
                 <Users className="w-3 h-3" />
                 {players.length} Inscritos
               </span>
-              {tournament.startTime && (
-                <span className="flex items-center gap-2 text-brand italic">
-                  <Calendar className="w-3 h-3" />
-                  {tournament.startTime} - {tournament.endTime || '??:??'}
-                </span>
-              )}
             </div>
 
             {tournament.winnerId && (
@@ -1100,25 +670,6 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
         </div>
 
         <div className="flex items-center gap-4 relative z-10">
-          {isOwner && (
-            <button 
-              onClick={() => setShowSettings(true)}
-              className="w-12 h-12 bg-slate-900 border border-white/10 rounded-2xl flex items-center justify-center hover:bg-slate-800 transition-colors"
-            >
-              <Settings className="w-5 h-5 text-slate-500" />
-            </button>
-          )}
-
-          {isPlayer && !isEnrolled && tournament.status === 'active' && (
-            <button 
-              onClick={joinTournament}
-              className="px-10 py-5 bg-emerald-500 text-bg-dark font-black uppercase italic tracking-[0.2em] rounded-2xl hover:scale-105 transition-all text-sm shadow-[0_0_40px_rgba(16,185,129,0.3)] flex items-center gap-3 animate-pulse"
-            >
-              <Trophy className="w-5 h-5 stroke-[3px]" />
-              Aceitar Desafio // {tournament.startTime}
-            </button>
-          )}
-
           {isOwner && tournament.status === 'draft' && (
             <button 
               onClick={async () => {
@@ -1163,10 +714,10 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
       {/* Tab Content */}
       <div className="min-h-[400px]">
         {activeTab === 'players' && (
-          <PlayerList tournament={tournament} players={players} matches={matches} isOwner={isOwner} onShowProfile={onShowProfile} />
+          <PlayerList tournament={tournament} players={players} matches={matches} isOwner={isOwner} />
         )}
         {activeTab === 'matches' && (
-          <MatchList tournament={tournament} matches={matches} players={players} isOwner={isOwner} onShowProfile={onShowProfile} />
+          <MatchList tournament={tournament} matches={matches} players={players} isOwner={isOwner} />
         )}
         {activeTab === 'settings' && (
           <div className="glass-card p-10 text-center text-zinc-500">
@@ -1178,115 +729,8 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
   );
 }
 
-function TournamentSettingsModal({ isOpen, onClose, tournament }: { isOpen: boolean, onClose: () => void, tournament: Tournament }) {
-  const [name, setName] = useState(tournament.name);
-  const [startTime, setStartTime] = useState(tournament.startTime || '19:00');
-  const [endTime, setEndTime] = useState(tournament.endTime || '22:00');
-  const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
-
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      await updateDoc(doc(db, 'tournaments', tournament.id), {
-        name,
-        startTime,
-        endTime
-      });
-      onClose();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!window.confirm("Tem certeza que deseja apagar este torneio?")) return;
-    try {
-      await deleteDoc(doc(db, 'tournaments', tournament.id));
-      navigate('/tournaments');
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-zinc-950/90 backdrop-blur-sm">
-      <motion.div 
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="glass-card w-full max-w-md p-8 border-white/10"
-      >
-        <h3 className="text-2xl font-black uppercase italic tracking-tighter mb-8">Definições da Arena</h3>
-        
-        <form onSubmit={handleSave} className="space-y-6">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Nome do Torneio</label>
-            <input 
-              value={name}
-              onChange={e => setName(e.target.value)}
-              className="w-full h-14 bg-white/5 border border-white/10 rounded-xl px-6 text-white text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Início</label>
-              <input 
-                type="time" 
-                value={startTime}
-                onChange={e => setStartTime(e.target.value)}
-                className="w-full h-14 bg-white/5 border border-white/10 rounded-xl px-6 text-white text-sm"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Fim Estimado</label>
-              <input 
-                type="time" 
-                value={endTime}
-                onChange={e => setEndTime(e.target.value)}
-                className="w-full h-14 bg-white/5 border border-white/10 rounded-xl px-6 text-white text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="pt-4 space-y-3">
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="w-full h-14 bg-brand text-bg-dark font-black uppercase italic tracking-widest rounded-xl hover:scale-105 transition-all text-xs"
-            >
-              Gravar Alterações
-            </button>
-            <button 
-              type="button"
-              onClick={onClose}
-              className="w-full h-14 bg-zinc-900 text-slate-400 font-black uppercase italic tracking-widest rounded-xl hover:text-white transition-all text-xs"
-            >
-              Cancelar
-            </button>
-            <button 
-              type="button"
-              onClick={handleDelete}
-              className="w-full pt-6 text-[10px] font-black uppercase tracking-widest text-red-500/40 hover:text-red-500 transition-colors"
-            >
-              Apagar Torneio Definitivamente
-            </button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
-  );
-}
-
-function PlayerList({ tournament, players, matches, isOwner, onShowProfile }: { tournament: Tournament, players: Player[], matches: Match[], isOwner: boolean, onShowProfile: (id: string) => void }) {
+function PlayerList({ tournament, players, matches, isOwner }: { tournament: Tournament, players: Player[], matches: Match[], isOwner: boolean }) {
   const [newName, setNewName] = useState('');
-  const [newAge, setNewAge] = useState('');
-  const [newPlayStyle, setNewPlayStyle] = useState('');
   const tournamentId = tournament.id;
 
   // --- Stats Calculations ---
@@ -1327,16 +771,11 @@ function PlayerList({ tournament, players, matches, isOwner, onShowProfile }: { 
     try {
       await addDoc(collection(db, 'tournaments', tournamentId, 'players'), {
         name: newName,
-        age: parseInt(newAge) || null,
-        playStyle: newPlayStyle || 'casual',
         tournamentId,
         seed: players.length + 1,
-        status: 'active',
-        isGuest: true
+        status: 'active'
       });
       setNewName('');
-      setNewAge('');
-      setNewPlayStyle('');
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, `tournaments/${tournamentId}/players`);
     }
@@ -1422,24 +861,10 @@ function PlayerList({ tournament, players, matches, isOwner, onShowProfile }: { 
                       #{p.seed}
                     </div>
                     <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span 
-                          onClick={() => !(p as any).isGuest && onShowProfile(p.id)}
-                          className={`font-black uppercase italic tracking-tighter text-xl text-white ${!(p as any).isGuest ? 'cursor-pointer hover:text-brand' : ''}`}
-                        >
-                          {p.name}
-                        </span>
-                        {(p as any).isGuest && (
-                          <span className="text-[7px] font-black uppercase tracking-[0.2em] px-1.5 py-0.5 rounded-sm bg-slate-800 text-slate-500 border border-white/5">
-                            Guest
-                          </span>
-                        )}
-                      </div>
+                      <span className="font-black uppercase italic tracking-tighter text-xl text-white">{p.name}</span>
                       <div className="flex items-center gap-4 text-[8px] font-black uppercase tracking-widest text-slate-500">
                         <span>Win Rate: <span className="text-brand">{playerStats.find(s => s.name === p.name)?.winRate}%</span></span>
                         <span>Partidas: {playerStats.find(s => s.name === p.name)?.total}</span>
-                        {(p as any).age && <span>• {(p as any).age} anos</span>}
-                        {(p as any).playStyle && <span>• {(p as any).playStyle}</span>}
                       </div>
                     </div>
                   </div>
@@ -1459,57 +884,22 @@ function PlayerList({ tournament, players, matches, isOwner, onShowProfile }: { 
       </div>
 
       <div className="space-y-6">
-        {isOwner && (tournament.status === 'draft' || tournament.status === 'active') && (
+        {isOwner && tournament.status === 'draft' && (
           <div className="glass-card p-8 bg-brand/5 border-brand/20">
-            <div className="mb-6">
-              <h4 className="font-black uppercase italic text-brand text-xs flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                Inscrição Offline
-              </h4>
-              <p className="text-[8px] font-bold text-brand/60 uppercase tracking-widest mt-1">Para jogadores sem acesso ao app</p>
-            </div>
+            <h4 className="font-black uppercase italic text-brand text-xs mb-6 flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Inscrição de Elite
+            </h4>
             <form onSubmit={addPlayer} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-[8px] font-black uppercase tracking-widest text-brand/40 ml-2">Nome Completo</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  placeholder="EX: JOÃO DO TACO"
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 focus:outline-none focus:border-brand transition-colors font-bold uppercase tracking-widest text-xs"
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-[8px] font-black uppercase tracking-widest text-brand/40 ml-2">Idade</label>
-                  <input 
-                    type="number" 
-                    value={newAge}
-                    onChange={e => setNewAge(e.target.value)}
-                    placeholder="25"
-                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 focus:outline-none focus:border-brand transition-colors font-bold uppercase tracking-widest text-xs"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[8px] font-black uppercase tracking-widest text-brand/40 ml-2">Estilo</label>
-                  <select 
-                    value={newPlayStyle}
-                    onChange={e => setNewPlayStyle(e.target.value)}
-                    className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-4 focus:outline-none focus:border-brand transition-colors font-bold uppercase tracking-widest text-[9px] appearance-none"
-                  >
-                    <option value="">ESTILO...</option>
-                    <option value="technical">TÉCNICO</option>
-                    <option value="aggressive">AGRESSIVO</option>
-                    <option value="strategic">ESTRATÉGICO</option>
-                    <option value="casual">CASUAL</option>
-                  </select>
-                </div>
-              </div>
-
+              <input 
+                type="text" 
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder="NOME DO GUERREIRO"
+                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 focus:outline-none focus:border-brand transition-colors font-bold uppercase tracking-widest text-xs"
+              />
               <button className="w-full py-4 bg-brand text-bg-dark font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-all text-[10px] shadow-lg shadow-brand/10 italic">
-                Adicionar Gladiador Offline
+                Confirmar Participação
               </button>
             </form>
           </div>
@@ -1543,7 +933,7 @@ function PlayerList({ tournament, players, matches, isOwner, onShowProfile }: { 
   );
 }
 
-function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { tournament: Tournament, matches: Match[], players: Player[], isOwner: boolean, onShowProfile: (id: string) => void }) {
+function MatchList({ tournament, matches, players, isOwner }: { tournament: Tournament, matches: Match[], players: Player[], isOwner: boolean }) {
   const tournamentId = tournament.id;
   const getPlayerName = (id: string) => players.find(p => p.id === id)?.name || "TBD";
 
@@ -1822,7 +1212,6 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
                       isOwner={isOwner}
                       onUpdateScore={updateScore}
                       onSetWinner={setWinner}
-                      onShowProfile={onShowProfile}
                     />
                   ))}
                 </div>
@@ -1841,8 +1230,7 @@ function MatchCard({
   p2Name, 
   isOwner,
   onUpdateScore,
-  onSetWinner,
-  onShowProfile
+  onSetWinner
 }: { 
   key?: string,
   match: Match, 
@@ -1850,8 +1238,7 @@ function MatchCard({
   p2Name: string, 
   isOwner: boolean,
   onUpdateScore: any,
-  onSetWinner: any,
-  onShowProfile: (id: string) => void
+  onSetWinner: any
 }) {
   return (
     <div className="glass-card overflow-hidden bg-zinc-900 border-zinc-800 relative group">
@@ -1869,12 +1256,7 @@ function MatchCard({
                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Entry #1</span>
                {match.winnerId === match.player1Id && <span className="px-1.5 py-0.5 bg-brand/20 text-brand text-[8px] font-black uppercase rounded">Winner</span>}
              </div>
-             <span 
-               onClick={() => match.player1Id && onShowProfile(match.player1Id)}
-               className={`text-2xl font-black uppercase tracking-tight italic ${match.player1Id ? 'cursor-pointer hover:text-brand transition-colors' : ''}`}
-             >
-               {p1Name}
-             </span>
+             <span className="text-2xl font-black uppercase tracking-tight italic">{p1Name}</span>
           </div>
           <div className="flex items-center gap-4">
             {isOwner && match.status !== 'finished' && (
@@ -1902,12 +1284,7 @@ function MatchCard({
                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Entry #2</span>
                {match.winnerId === match.player2Id && <span className="px-1.5 py-0.5 bg-brand/20 text-brand text-[8px] font-black uppercase rounded">Winner</span>}
              </div>
-             <span 
-               onClick={() => match.player2Id && onShowProfile(match.player2Id)}
-               className={`text-2xl font-black uppercase tracking-tight italic ${match.player2Id ? 'cursor-pointer hover:text-brand transition-colors' : ''}`}
-             >
-               {p2Name}
-             </span>
+             <span className="text-2xl font-black uppercase tracking-tight italic">{p2Name}</span>
           </div>
           <div className="flex items-center gap-4">
             {isOwner && match.status !== 'finished' && (
@@ -1950,1238 +1327,27 @@ function MatchCard({
   );
 }
 
-// --- Authentication Components ---
-function Login() {
-  const { user, needsRole } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const loginWithGoogle = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      console.error("Login Error:", err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const [selectedRole, setSelectedRole] = useState<UserRole | null>(null);
-  const [age, setAge] = useState('');
-  const [playStyle, setPlayStyle] = useState('');
-  const [bio, setBio] = useState('');
-
-  const registerUser = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!user || !selectedRole) return;
-    setLoading(true);
-    setError(null);
-    try {
-      await setDoc(doc(db, 'users', user.uid), {
-        displayName: user.displayName,
-        email: user.email,
-        photoURL: user.photoURL,
-        role: selectedRole,
-        age: parseInt(age) || 0,
-        playStyle: playStyle,
-        bio: bio,
-        createdAt: serverTimestamp()
-      });
-      window.location.reload();
-    } catch (err: any) {
-      console.error("Registration Error:", err);
-      setError("Erro ao registrar perfil. Verifique os dados.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (user && needsRole) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans text-white">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-brand/5 blur-[120px] rounded-full" />
-        
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="glass-card p-12 max-w-2xl w-full relative z-10 border-white/5 bg-zinc-900/60 backdrop-blur-3xl rounded-[3rem]"
-        >
-          {!selectedRole ? (
-            <div className="text-center">
-              <h2 className="text-4xl font-black italic uppercase tracking-tighter mb-4">Bem-vindo, <span className="text-brand">{user.displayName?.split(' ')[0]}</span></h2>
-              <p className="text-slate-400 text-sm font-bold uppercase tracking-widest mb-12">Escolha seu destino na arena</p>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <button 
-                  onClick={() => setSelectedRole('owner')}
-                  className="group p-10 bg-white/5 border border-white/10 rounded-3xl hover:border-brand hover:bg-brand/5 transition-all text-left flex flex-col gap-6"
-                >
-                  <div className="w-16 h-16 bg-brand/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Crown className="text-brand w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black uppercase italic tracking-tighter mb-2 group-hover:text-brand">Dono da Mesa</h3>
-                    <p className="text-slate-500 text-xs font-medium uppercase tracking-wide leading-relaxed">
-                      Gerencie campeonatos, controle mesas e lidere a comunidade.
-                    </p>
-                  </div>
-                </button>
-
-                <button 
-                  onClick={() => setSelectedRole('player')}
-                  className="group p-10 bg-white/5 border border-white/10 rounded-3xl hover:border-emerald-500 hover:bg-emerald-500/5 transition-all text-left flex flex-col gap-6"
-                >
-                  <div className="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Users className="text-emerald-500 w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black uppercase italic tracking-tighter mb-2 group-hover:text-emerald-500">Jogador</h3>
-                    <p className="text-slate-500 text-xs font-medium uppercase tracking-wide leading-relaxed">
-                      Participe de torneios, suba no ranking e prove seu valor.
-                    </p>
-                  </div>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={registerUser} className="space-y-8">
-              <div className="text-center">
-                <button onClick={() => setSelectedRole(null)} className="text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white mb-6 flex items-center gap-2 mx-auto">
-                  <ArrowLeft className="w-3 h-3" /> Voltar
-                </button>
-                <h2 className="text-3xl font-black uppercase italic tracking-tighter mb-2">Finalizar <span className="text-brand">Perfil</span></h2>
-                <p className="text-slate-500 text-[10px] uppercase tracking-widest font-bold">Modo: {selectedRole === 'owner' ? 'Dono da Mesa' : 'Jogador'}</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Idade</label>
-                  <input 
-                    type="number"
-                    required
-                    value={age}
-                    onChange={(e) => setAge(e.target.value)}
-                    placeholder="Ex: 25"
-                    className="w-full h-14 bg-white/5 border border-white/10 rounded-2xl px-6 text-white text-sm focus:outline-none focus:border-brand/40"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Estilo de Jogo</label>
-                  <select 
-                    required
-                    value={playStyle}
-                    onChange={(e) => setPlayStyle(e.target.value)}
-                    className="w-full h-14 bg-zinc-900 border border-white/10 rounded-2xl px-6 text-white text-sm focus:outline-none focus:border-brand/40 appearance-none"
-                  >
-                    <option value="">Selecione...</option>
-                    <option value="technical">Técnico / Precisão</option>
-                    <option value="aggressive">Agressivo / Efeito</option>
-                    <option value="strategic">Estratégico / Defesa</option>
-                    <option value="casual">Casual / Diversão</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Bio / Descrição</label>
-                <textarea 
-                  value={bio}
-                  onChange={(e) => setBio(e.target.value)}
-                  placeholder="Conte um pouco sobre sua experiência..."
-                  className="w-full h-32 bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-white text-sm focus:outline-none focus:border-brand/40 resize-none"
-                />
-              </div>
-
-              <button 
-                type="submit"
-                disabled={loading}
-                className="w-full h-16 bg-brand text-zinc-950 font-black uppercase tracking-[0.2em] italic rounded-2xl flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-brand/20 disabled:opacity-50"
-              >
-                {loading ? 'Sincronizando...' : 'Concluir Registro'}
-              </button>
-            </form>
-          )}
-
-          {error && (
-            <p className="mt-8 text-red-500 text-[10px] font-black uppercase tracking-widest text-center">{error}</p>
-          )}
-
-          <button 
-            onClick={() => signOut(auth)}
-            className="mt-10 w-full text-[10px] font-black uppercase tracking-[0.4em] text-slate-700 hover:text-white transition-colors"
-          >
-            Sair da conta
-          </button>
-        </motion.div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 relative overflow-hidden font-sans">
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-brand/5 blur-[120px] rounded-full" />
-      
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card p-12 max-w-sm w-full relative z-10 border-white/5 bg-zinc-900/40 backdrop-blur-3xl rounded-[3rem]"
-      >
-        <div className="flex justify-center mb-10">
-          <div className="w-20 h-20 bg-brand/10 border border-brand/20 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-brand/20 rotate-12">
-            <Gamepad2 className="w-10 h-10 text-brand -rotate-12" />
-          </div>
-        </div>
-
-        <div className="text-center mb-10">
-          <h1 className="text-4xl font-black italic uppercase tracking-tighter mb-1">NUMBER <span className="text-brand">8</span></h1>
-          <p className="text-slate-500 text-[9px] font-black uppercase tracking-[0.4em] italic">Pro Billiards System</p>
-        </div>
-
-        <div className="space-y-6">
-          <div className="text-center space-y-2 mb-8">
-            <h2 className="text-white font-black uppercase italic tracking-widest text-sm">Controle de Acesso</h2>
-            <p className="text-slate-500 text-[9px] uppercase tracking-widest font-bold text-center">Identifique-se para gerenciar seus torneios</p>
-          </div>
-
-          {error && (
-            <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] font-bold uppercase tracking-widest text-center">
-              {error}
-            </div>
-          )}
-
-          <button 
-            disabled={loading}
-            onClick={loginWithGoogle}
-            className="w-full h-20 bg-white text-zinc-950 font-black uppercase tracking-[0.1em] italic rounded-2xl flex items-center justify-center gap-4 hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-brand/20 disabled:opacity-50"
-          >
-            {loading ? (
-              <span className="text-xs animate-pulse tracking-widest">Aguarde...</span>
-            ) : (
-              <>
-                <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-                <span className="text-sm">Entrar com Google</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        <div className="mt-12 pt-8 border-t border-white/5 text-[8px] font-black uppercase tracking-[0.3em] text-zinc-700 text-center">
-          Acesso via Protocolo Seguro
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-function PlayerProfileModal({ userId, onClose }: { userId: string | null, onClose: () => void }) {
-  const { user: currentUser } = useAuth();
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [profileMatches, setProfileMatches] = useState<FriendlyMatch[]>([]);
-  const [profileTournaments, setProfileTournaments] = useState<Tournament[]>([]);
-  
-  // Edit State
-  const [editName, setEditName] = useState('');
-  const [editAge, setEditAge] = useState('');
-  const [editPlayStyle, setEditPlayStyle] = useState('');
-  const [editBio, setEditBio] = useState('');
-  const [editLocationName, setEditLocationName] = useState('');
-  const [editLocationAddress, setEditLocationAddress] = useState('');
-
-  useEffect(() => {
-    if (!userId) {
-      setProfile(null);
-      setIsEditing(false);
-      return;
-    }
-
-    const fetchProfileData = async () => {
-      setLoading(true);
-      try {
-        const userDoc = await getDoc(doc(db, 'users', userId));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          setProfile(data);
-          setEditName(data.displayName || '');
-          setEditAge(data.age?.toString() || '');
-          setEditPlayStyle(data.playStyle || 'casual');
-          setEditBio(data.bio || '');
-          setEditLocationName(data.locationName || '');
-          setEditLocationAddress(data.locationAddress || '');
-
-          // Fetch matches for this specific profile
-          const q = query(
-            collection(db, 'friendlyMatches'), 
-            where('status', '==', 'finished'),
-            orderBy('createdAt', 'desc'),
-            limit(15)
-          );
-          const matchSnap = await getDocs(q);
-          const allMatches = matchSnap.docs.map(d => ({ id: d.id, ...d.data() } as FriendlyMatch));
-          // Filter participants manually since Firestore OR across two fields is tricky here
-          setProfileMatches(allMatches.filter(m => m.player1Id === userId || m.player2Id === userId));
-
-          // Fetch tournaments won
-          const qTournaments = query(
-            collection(db, 'tournaments'),
-            where('winnerId', '==', userId)
-          );
-          const tournamentSnap = await getDocs(qTournaments);
-          setProfileTournaments(tournamentSnap.docs.map(d => ({ id: d.id, ...d.data() } as Tournament)));
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProfileData();
-  }, [userId]);
-
-  const wins = profileMatches.filter(m => m.winnerId === userId).length;
-  const total = profileMatches.length;
-
-  const handleUpdate = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!userId || !currentUser) return;
-
-    setLoading(true);
-    try {
-      await updateDoc(doc(db, 'users', userId), {
-        displayName: editName,
-        age: parseInt(editAge) || null,
-        playStyle: editPlayStyle,
-        bio: editBio,
-        locationName: profile.role === 'owner' ? editLocationName : null,
-        locationAddress: profile.role === 'owner' ? editLocationAddress : null,
-        updatedAt: serverTimestamp()
-      });
-      
-      const userDoc = await getDoc(doc(db, 'users', userId));
-      setProfile(userDoc.data());
-      setIsEditing(false);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (!userId) return null;
-
-  const isOwnProfile = currentUser?.uid === userId;
-
-  return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-950/80 backdrop-blur-md"
-        onClick={onClose}
-      >
-        <motion.div
-          initial={{ scale: 0.9, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.9, y: 20 }}
-          className="glass-card w-full max-w-lg overflow-hidden relative"
-          onClick={e => e.stopPropagation()}
-        >
-          <button onClick={onClose} className="absolute top-6 right-6 text-slate-500 hover:text-white transition-colors z-10">
-            <X className="w-5 h-5" />
-          </button>
-
-          {loading && !isEditing ? (
-            <div className="py-20 flex justify-center">
-              <div className="w-8 h-8 border-2 border-brand/20 border-t-brand rounded-full animate-spin" />
-            </div>
-          ) : profile ? (
-            <div>
-              <div className="h-32 bg-brand/10 relative">
-                <div className="absolute -bottom-12 left-8 p-1 bg-zinc-900 rounded-2xl border border-white/5 shadow-2xl">
-                  {profile.photoURL ? (
-                    <img src={profile.photoURL} className="w-24 h-24 rounded-xl object-cover" alt="" />
-                  ) : (
-                   <div className="w-24 h-24 rounded-xl bg-zinc-800 flex items-center justify-center">
-                     <UserIcon className="w-10 h-10 text-slate-600" />
-                   </div>
-                  )}
-                </div>
-                {isOwnProfile && !isEditing && (
-                  <button 
-                    onClick={() => setIsEditing(true)}
-                    className="absolute bottom-4 right-8 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-lg text-[8px] font-black uppercase tracking-widest text-white border border-white/10 transition-all font-sans"
-                  >
-                    Editar Perfil
-                  </button>
-                )}
-              </div>
-
-              <div className="pt-16 pb-12 px-8">
-                {isEditing ? (
-                  <form onSubmit={handleUpdate} className="space-y-6">
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Nome de Exibição</label>
-                       <input 
-                         required
-                         value={editName}
-                         onChange={e => setEditName(e.target.value)}
-                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand transition-colors text-white"
-                       />
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Idade</label>
-                        <input 
-                          type="number"
-                          value={editAge}
-                          onChange={e => setEditAge(e.target.value)}
-                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand transition-colors text-white"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Estilo</label>
-                        <select 
-                          value={editPlayStyle}
-                          onChange={e => setEditPlayStyle(e.target.value)}
-                          className="w-full bg-zinc-900 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand transition-colors text-white appearance-none"
-                        >
-                          <option value="technical">Técnico</option>
-                          <option value="aggressive">Agressivo</option>
-                          <option value="strategic">Estratégico</option>
-                          <option value="casual">Casual</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Bio / Trajetória</label>
-                       <textarea 
-                         value={editBio}
-                         onChange={e => setEditBio(e.target.value)}
-                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand transition-colors text-white min-h-[100px] resize-none"
-                         placeholder="Conte sua história na mesa..."
-                       />
-                    </div>
-
-                    {profile.role === 'owner' && (
-                      <div className="space-y-4 pt-4 border-t border-white/5">
-                        <div className="flex items-center gap-2 mb-2">
-                          <MapPin className="w-4 h-4 text-brand" />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-white">Localização da Mesa</span>
-                        </div>
-                        <div className="space-y-2">
-                           <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Nome da Banca / Local</label>
-                           <input 
-                             value={editLocationName}
-                             onChange={e => setEditLocationName(e.target.value)}
-                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand transition-colors text-white"
-                             placeholder="Ex: Banca do Sr. João, Ponto de Encontro N8"
-                           />
-                        </div>
-                        <div className="space-y-2">
-                           <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-2">Endereço / Ponto de Referência</label>
-                           <textarea 
-                             value={editLocationAddress}
-                             onChange={e => setEditLocationAddress(e.target.value)}
-                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-brand transition-colors text-white min-h-[80px] resize-none"
-                             placeholder="Ex: Av. Principal, próximo à padaria Central..."
-                           />
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex gap-3 pt-4">
-                      <button 
-                        type="submit"
-                        disabled={loading}
-                        className="flex-1 py-4 bg-brand text-bg-dark font-black uppercase tracking-widest text-[10px] italic rounded-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-brand/10"
-                      >
-                        {loading ? 'Salvando...' : 'Gravar Alterações'}
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setIsEditing(false)}
-                        className="px-6 py-4 border border-white/10 text-slate-400 font-black uppercase tracking-widest text-[10px] italic rounded-xl hover:bg-white/5 transition-all"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  </form>
-                ) : (
-                  <>
-                    <div className="mb-8">
-                      <h2 className="text-3xl font-black uppercase italic tracking-tighter text-white mb-1">{profile.displayName}</h2>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-brand px-2 py-0.5 bg-brand/10 rounded-sm border border-brand/20">
-                          {profile.role === 'owner' ? 'Dono da Mesa' : 'Campeão'}
-                        </span>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
-                          ID: #{userId.substring(0, 6).toUpperCase()}
-                        </span>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
-                          {profile.createdAt?.toDate ? `Entrou em ${profile.createdAt.toDate().toLocaleDateString()}` : 'Acesso Recente'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4 mb-8">
-                      <div className="glass-card p-4 bg-white/5">
-                        <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-1">Estilo</span>
-                        <span className="text-sm font-bold uppercase italic text-white">{profile.playStyle || 'Não definido'}</span>
-                      </div>
-                      <div className="glass-card p-4 bg-white/5">
-                        <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-1">Idade</span>
-                        <span className="text-sm font-bold uppercase italic text-white">{profile.age ? `${profile.age} Anos` : 'N/A'}</span>
-                      </div>
-                    </div>
-
-                    {profile.bio && (
-                      <div className="mb-8">
-                        <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500 block mb-3">Trajectória</span>
-                        <p className="text-slate-400 text-sm leading-relaxed italic">{profile.bio}</p>
-                      </div>
-                    )}
-
-                    {profile.role === 'owner' && (profile.locationName || profile.locationAddress) && (
-                      <div className="p-6 bg-brand/5 border border-brand/10 rounded-2xl mb-8">
-                        <div className="flex items-center gap-3 mb-4">
-                          <div className="w-8 h-8 rounded-lg bg-brand/20 flex items-center justify-center">
-                            <MapPin className="w-4 h-4 text-brand" />
-                          </div>
-                          <div>
-                            <span className="text-[8px] font-black uppercase tracking-[0.2em] text-brand block">Onde me encontrar</span>
-                            <span className="text-xs font-black uppercase italic text-white">{profile.locationName || 'Minha Banca'}</span>
-                          </div>
-                        </div>
-                        <p className="text-slate-400 text-[11px] leading-relaxed italic border-l-2 border-brand/30 pl-4">
-                          {profile.locationAddress || 'Localização não especificada.'}
-                        </p>
-                      </div>
-                    )}
-
-                    {profileTournaments.length > 0 && (
-                      <div className="mb-10">
-                        <div className="flex items-center gap-3 mb-6">
-                           <div className="w-10 h-px bg-brand/30" />
-                           <span className="text-[10px] font-black uppercase tracking-[0.4em] text-brand italic">Hall of Fame</span>
-                           <div className="w-10 h-px bg-brand/30" />
-                        </div>
-                        <div className="grid grid-cols-1 gap-3">
-                          {profileTournaments.map(t => (
-                            <div key={t.id} className="p-4 bg-brand/5 border border-brand/20 rounded-2xl flex items-center gap-4 group">
-                              <div className="w-10 h-10 rounded-xl bg-brand flex items-center justify-center shadow-lg shadow-brand/20">
-                                <Trophy className="w-5 h-5 text-bg-dark stroke-[3px]" />
-                              </div>
-                              <div>
-                                <div className="text-[10px] font-black uppercase tracking-widest text-brand mb-0.5">Campeão</div>
-                                <div className="text-sm font-black italic uppercase text-white">{t.name}</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="mb-8">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500">Histórico de Combates</span>
-                        <div className="flex gap-4">
-                          <div className="text-center">
-                            <div className="text-[10px] font-black text-brand">{wins}</div>
-                            <div className="text-[7px] font-black text-slate-600 uppercase">Vitórias</div>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-[10px] font-black text-white">{total - wins}</div>
-                            <div className="text-[7px] font-black text-slate-600 uppercase">Derrotas</div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {profileMatches.map(m => {
-                          const isWinner = m.winnerId === userId;
-                          const opponent = m.player1Id === userId ? m.player2Name : m.player1Name;
-                          const score = m.player1Id === userId ? `${m.score1}-${m.score2}` : `${m.score2}-${m.score1}`;
-                          
-                          return (
-                            <div key={m.id} className="p-4 bg-white/5 rounded-xl border border-white/5 flex items-center justify-between group hover:bg-white/[0.08] transition-all">
-                              <div className="flex items-center gap-3">
-                                <div className={`w-2 h-2 rounded-full ${isWinner ? 'bg-brand shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-red-500 shadow-lg shadow-red-500/20'}`}></div>
-                                <div className="text-[9px] font-black uppercase tracking-wider text-slate-300">
-                                  vs <span className="text-white italic">{opponent}</span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-4">
-                                <span className="font-mono text-xs font-black text-white tracking-widest">{score}</span>
-                                <Sword className="w-3 h-3 text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity" />
-                              </div>
-                            </div>
-                          );
-                        })}
-                        {profileMatches.length === 0 && (
-                          <div className="p-8 border border-dashed border-white/10 rounded-xl text-center">
-                            <p className="text-[9px] font-black uppercase text-slate-700 tracking-widest leading-relaxed">Nenhuma partida finalizada no histórico deste jogador</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {!isOwnProfile && currentUser && (
-                      <div className="mt-10">
-                        <button 
-                          onClick={async () => {
-                            setLoading(true);
-                            try {
-                              const matchRef = await addDoc(collection(db, 'friendlyMatches'), {
-                                player1Id: currentUser.uid,
-                                player1Name: currentUser.displayName,
-                                player2Id: userId,
-                                player2Name: profile.displayName,
-                                score1: 0,
-                                score2: 0,
-                                winnerId: null,
-                                status: 'requested',
-                                createdBy: currentUser.uid,
-                                createdAt: serverTimestamp()
-                              });
-
-                              await addDoc(collection(db, 'users', userId, 'notifications'), {
-                                userId: userId,
-                                title: 'Novo Desafio!',
-                                message: `${currentUser.displayName} te desafiou para um amistoso.`,
-                                type: 'match_start',
-                                read: false,
-                                createdAt: serverTimestamp(),
-                                link: `/friendly`
-                              });
-
-                              onClose();
-                            } catch (e) {
-                              console.error(e);
-                            } finally {
-                              setLoading(false);
-                            }
-                          }}
-                          disabled={loading}
-                          className="w-full py-4 bg-brand text-bg-dark font-black uppercase tracking-widest text-[10px] italic rounded-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-brand/10 flex items-center justify-center gap-3"
-                        >
-                          <Sword className="w-4 h-4" />
-                          {loading ? 'Enviando...' : 'Desafiar para Duelo'}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="py-20 text-center">
-              <p className="text-slate-500 font-bold uppercase tracking-widest">Perfil não encontrado</p>
-            </div>
-          )}
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
-  );
-}
-
-function FriendlyMatchManager({ onShowProfile }: { onShowProfile: (id: string) => void }) {
-  const { user } = useAuth();
-  const [matches, setMatches] = useState<FriendlyMatch[]>([]);
-  const [globalMatches, setGlobalMatches] = useState<FriendlyMatch[]>([]);
-  const [availablePlayers, setAvailablePlayers] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'feed' | 'history' | 'duels' | 'search' | 'new'>('feed');
-  
-  const [player2Id, setPlayer2Id] = useState('');
-  const [score1, setScore1] = useState(0);
-  const [score2, setScore2] = useState(0);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    // Global feed of all finished matches
-    const qFeed = query(
-      collection(db, 'friendlyMatches'), 
-      where('status', '==', 'finished'),
-      orderBy('createdAt', 'desc'),
-      limit(20)
-    );
-    const unsubscribeFeed = onSnapshot(qFeed, (snapshot) => {
-      setGlobalMatches(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FriendlyMatch)));
-    });
-
-    // User's personal history/duels
-    const qMy = query(collection(db, 'friendlyMatches'), orderBy('createdAt', 'desc'));
-    const unsubscribeMy = onSnapshot(qMy, (snapshot) => {
-      setMatches(snapshot.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as FriendlyMatch))
-        .filter(m => m.player1Id === user?.uid || m.player2Id === user?.uid)
-      );
-    });
-
-    const fetchPlayers = async () => {
-      const qUsers = query(collection(db, 'users'), limit(100));
-      const snapshot = await getDocs(qUsers);
-      setAvailablePlayers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(p => p.id !== user?.uid));
-    };
-
-    fetchPlayers();
-    return () => {
-      unsubscribeFeed();
-      unsubscribeMy();
-    };
-  }, [user]);
-
-  const filteredPlayers = availablePlayers.filter(p => 
-    p.displayName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.id.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const updateMatchStatus = async (matchId: string, status: 'accepted' | 'declined' | 'finished', scores?: { s1: number, s2: number }) => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const updateData: any = { status };
-      if (scores) {
-        updateData.score1 = scores.s1;
-        updateData.score2 = scores.s2;
-        updateData.winnerId = scores.s1 > scores.s2 ? matches.find(m => m.id === matchId)?.player1Id : 
-                              scores.s2 > scores.s1 ? matches.find(m => m.id === matchId)?.player2Id : null;
-      }
-      await updateDoc(doc(db, 'friendlyMatches', matchId), updateData);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createMatch = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!user || !player2Id) return;
-
-    setLoading(true);
-    try {
-      const p2 = availablePlayers.find(p => p.id === player2Id);
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      const userData = userDoc.data();
-
-      await addDoc(collection(db, 'friendlyMatches'), {
-        player1Id: user.uid,
-        player1Name: user.displayName,
-        player2Id: player2Id,
-        player2Name: p2?.displayName || 'Jogador Oculto',
-        score1,
-        score2,
-        winnerId: score1 > score2 ? user.uid : score1 < score2 ? player2Id : null,
-        status: 'finished',
-        locationName: userData?.locationName || null,
-        locationAddress: userData?.locationAddress || null,
-        createdBy: user.uid,
-        createdAt: serverTimestamp()
-      });
-      setActiveTab('history');
-      setPlayer2Id('');
-      setScore1(0);
-      setScore2(0);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, 'friendlyMatches');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="max-w-7xl mx-auto px-6 py-12">
-      <div className="mb-12 flex flex-col md:flex-row md:items-end justify-between gap-6">
-        <div>
-          <span className="text-brand text-[10px] font-black uppercase tracking-[0.4em]">Partidas de Rua</span>
-          <h1 className="text-5xl font-black italic uppercase tracking-tighter mt-2 text-white">Amistosos</h1>
-        </div>
-        
-        <div className="flex p-1 bg-zinc-900 rounded-xl border border-white/5">
-          <button 
-            onClick={() => setActiveTab('feed')}
-            className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'feed' ? 'bg-zinc-800 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Mundo
-          </button>
-          <button 
-            onClick={() => setActiveTab('history')}
-            className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'history' ? 'bg-zinc-800 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Histórico
-          </button>
-          <button 
-            onClick={() => setActiveTab('duels')}
-            className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'duels' ? 'bg-zinc-800 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Duelos
-          </button>
-          <button 
-            onClick={() => setActiveTab('search')}
-            className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'search' ? 'bg-zinc-800 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            <Search className="w-3 h-3" />
-            Procurar
-          </button>
-          <button 
-            onClick={() => setActiveTab('new')}
-            className={`px-6 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'new' ? 'bg-zinc-800 text-white shadow-xl' : 'text-slate-500 hover:text-slate-300'}`}
-          >
-            Registrar
-          </button>
-        </div>
-      </div>
-
-      {user && (
-        <div className="mb-8 p-6 bg-brand/5 border border-brand/10 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-brand/20 flex items-center justify-center">
-              <UserIcon className="w-6 h-6 text-brand" />
-            </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">Seu Perfil de Atleta</p>
-              <p className="text-xl font-black text-white italic uppercase tracking-tighter">{user.displayName || 'Jogador'}</p>
-            </div>
-          </div>
-          <div className="flex flex-col items-center md:items-end">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">Seu ID para buscas</p>
-            <div className="bg-zinc-950 px-4 py-2 rounded-lg border border-white/5 font-mono font-black text-brand tracking-[0.2em] shadow-inner">
-              #{user.uid.substring(0, 10).toUpperCase()}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'feed' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {globalMatches.map(m => (
-            <div key={m.id} className="glass-card p-6 bg-zinc-900 border-white/5 group">
-              <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></div>
-                  <span className="text-[8px] font-black uppercase tracking-[0.3em] text-brand">Live Result</span>
-                </div>
-                <span className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-700">
-                  {m.createdAt?.toDate ? m.createdAt.toDate().toLocaleDateString() : 'Agora'}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between mb-8">
-                <div className="text-center flex-1">
-                  <div className="text-[10px] font-black text-white uppercase italic truncate mb-2">{m.player1Name}</div>
-                  <div className={`text-4xl font-black italic ${m.winnerId === m.player1Id ? 'text-brand' : 'text-slate-800'}`}>
-                    {m.score1}
-                  </div>
-                </div>
-                <div className="px-4 text-[10px] font-black text-slate-800 italic">VS</div>
-                <div className="text-center flex-1">
-                  <div className="text-[10px] font-black text-white uppercase italic truncate mb-2">{m.player2Name}</div>
-                  <div className={`text-4xl font-black italic ${m.winnerId === m.player2Id ? 'text-brand' : 'text-slate-800'}`}>
-                    {m.score2}
-                  </div>
-                </div>
-              </div>
-
-              {m.locationName && (
-                <div className="pt-4 border-t border-white/5 flex items-center justify-center gap-2">
-                  <MapPin className="w-3 h-3 text-brand" />
-                  <span className="text-[8px] font-black uppercase tracking-widest text-slate-500 italic">
-                    Logado em: <span className="text-slate-300">{m.locationName}</span>
-                  </span>
-                </div>
-              )}
-            </div>
-          ))}
-          {globalMatches.length === 0 && (
-            <div className="col-span-full py-20 text-center glass-card border-dashed">
-              <Sword className="w-12 h-12 text-slate-800 mx-auto mb-4" />
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Nenhuma atividade global detectada ainda</p>
-            </div>
-          )}
-        </div>
-      ) : activeTab === 'history' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {matches.filter(m => m.status === 'finished').map(m => (
-            <div key={m.id} className="glass-card p-6 bg-zinc-900 relative overflow-hidden group border-white/5">
-              <div className="flex justify-between items-center mb-6">
-                <span className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-500">Match Record</span>
-                <span className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-700">
-                  {m.createdAt?.toDate ? m.createdAt.toDate().toLocaleDateString() : 'Recent'}
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                <div className={`flex items-center justify-between ${m.winnerId === m.player1Id ? 'text-white' : 'text-slate-500'}`}>
-                  <span 
-                    onClick={() => onShowProfile(m.player1Id)}
-                    className="font-black italic uppercase text-lg tracking-tight truncate cursor-pointer hover:text-brand"
-                  >
-                    {m.player1Name}
-                  </span>
-                  <span className="text-2xl font-black">{m.score1}</span>
-                </div>
-                
-                <div className="flex items-center gap-4">
-                   <div className="h-px bg-white/5 flex-grow" />
-                   <div className="text-[8px] font-black text-slate-800 italic uppercase">Vs</div>
-                   <div className="h-px bg-white/5 flex-grow" />
-                </div>
-
-                <div className={`flex items-center justify-between ${m.winnerId === m.player2Id ? 'text-white' : 'text-slate-500'}`}>
-                  <span 
-                    onClick={() => onShowProfile(m.player2Id)}
-                    className="font-black italic uppercase text-lg tracking-tight truncate cursor-pointer hover:text-brand"
-                  >
-                    {m.player2Name}
-                  </span>
-                  <span className="text-2xl font-black">{m.score2}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-          {matches.filter(m => m.status === 'finished').length === 0 && (
-            <div className="col-span-full py-20 text-center glass-card border-dashed">
-              <Sword className="w-12 h-12 text-slate-800 mx-auto mb-4" />
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Nenhum amistoso registrado recentemente</p>
-            </div>
-          )}
-        </div>
-      ) : activeTab === 'duels' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {matches.filter(m => ['requested', 'accepted'].includes(m.status)).map(m => {
-            const isTarget = user?.uid === m.player2Id;
-            const isAsker = user?.uid === m.player1Id;
-
-            return (
-              <div key={m.id} className="glass-card p-6 bg-zinc-900 border-white/5 flex flex-col justify-between">
-                <div>
-                  <div className="flex justify-between items-center mb-6">
-                    <span className={`text-[8px] font-black uppercase tracking-[0.3em] ${m.status === 'requested' ? 'text-brand' : 'text-green-500'}`}>
-                      {m.status === 'requested' ? 'Desafio Pendente' : 'Desafio Aceito'}
-                    </span>
-                    <span className="text-[8px] font-black uppercase tracking-[0.3em] text-slate-700">
-                      {m.createdAt?.toDate ? m.createdAt.toDate().toLocaleDateString() : 'Enviado'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-center gap-6 py-4">
-                    <div className="text-center">
-                      <div className="font-black italic uppercase text-xs text-white mb-2 truncate max-w-[80px]">{m.player1Name}</div>
-                      <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center mx-auto"><Sword className="w-4 h-4 text-slate-600" /></div>
-                    </div>
-                    <div className="text-[10px] font-black text-slate-800 italic">VS</div>
-                    <div className="text-center">
-                      <div className="font-black italic uppercase text-xs text-white mb-2 truncate max-w-[80px]">{m.player2Name}</div>
-                      <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center mx-auto"><Sword className="w-4 h-4 text-slate-600" /></div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-8 space-y-3">
-                  {m.status === 'requested' && isTarget && (
-                    <div className="grid grid-cols-2 gap-2">
-                       <button 
-                         onClick={() => updateMatchStatus(m.id, 'accepted')}
-                         disabled={loading}
-                         className="h-10 bg-brand text-bg-dark font-black uppercase tracking-widest text-[8px] italic rounded-lg hover:bg-brand/80"
-                       >
-                         Aceitar
-                       </button>
-                       <button 
-                         onClick={() => updateMatchStatus(m.id, 'declined')}
-                         disabled={loading}
-                         className="h-10 bg-red-500/10 text-red-500 font-black uppercase tracking-widest text-[8px] italic rounded-lg hover:bg-red-500/20"
-                       >
-                         Recusar
-                       </button>
-                    </div>
-                  )}
-
-                  {m.status === 'accepted' && (isTarget || isAsker) && (
-                    <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-2">
-                          <input 
-                            type="number" 
-                            id={`score1-${m.id}`}
-                            defaultValue={0} 
-                            className="w-12 h-10 bg-zinc-950 border border-white/10 rounded-lg text-center font-black text-white"
-                          />
-                          <span className="text-[10px] font-black text-slate-600">-</span>
-                          <input 
-                            type="number" 
-                            id={`score2-${m.id}`}
-                            defaultValue={0} 
-                            className="w-12 h-10 bg-zinc-950 border border-white/10 rounded-lg text-center font-black text-white"
-                          />
-                        </div>
-                        <button 
-                          disabled={loading}
-                          onClick={() => {
-                            const s1 = parseInt((document.getElementById(`score1-${m.id}`) as HTMLInputElement).value);
-                            const s2 = parseInt((document.getElementById(`score2-${m.id}`) as HTMLInputElement).value);
-                            updateMatchStatus(m.id, 'finished', { s1, s2 });
-                          }}
-                          className="h-10 px-4 bg-white/10 text-brand font-black uppercase tracking-widest text-[8px] italic rounded-lg hover:bg-white/20"
-                        >
-                          Concluir
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {m.status === 'requested' && isAsker && (
-                    <div className="h-10 bg-zinc-950 text-slate-600 border border-white/5 font-black uppercase tracking-widest text-[8px] italic rounded-lg flex items-center justify-center">
-                      Aguardando Resposta...
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-          {matches.filter(m => ['requested', 'accepted'].includes(m.status)).length === 0 && (
-            <div className="col-span-full py-20 text-center glass-card border-dashed">
-              <Sword className="w-12 h-12 text-slate-800 mx-auto mb-4" />
-              <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Nenhum duelo pendente no momento</p>
-            </div>
-          )}
-        </div>
-      ) : activeTab === 'search' ? (
-        <div className="space-y-8">
-          <div className="max-w-md mx-auto">
-            <div className="relative group">
-              <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-5 h-5 text-brand group-focus-within:text-white transition-colors" />
-              <input 
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="PROCURAR POR NOME OU ID..."
-                className="w-full h-16 bg-white/5 border border-white/10 rounded-2xl pl-16 pr-6 text-xs font-black uppercase tracking-widest text-white focus:border-brand focus:bg-white/[0.08] focus:outline-none transition-all placeholder:text-slate-700"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {filteredPlayers.map(p => (
-              <div 
-                key={p.id}
-                onClick={() => onShowProfile(p.id)}
-                className="glass-card p-4 bg-zinc-900 border-white/5 hover:border-brand/30 cursor-pointer transition-all flex items-center gap-4 group"
-              >
-                <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
-                  <UserIcon className="w-5 h-5 text-slate-600 group-hover:text-brand transition-colors" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-black italic uppercase text-xs text-white truncate">{p.displayName || 'Anonimo'}</div>
-                  <div className="text-[8px] font-black text-slate-600 tracking-widest font-mono">ID: #{p.id.substring(0, 6).toUpperCase()}</div>
-                </div>
-              </div>
-            ))}
-            {filteredPlayers.length === 0 && (
-              <div className="col-span-full py-12 text-center text-slate-500 text-[10px] font-black uppercase tracking-widest">
-                Nenhum jogador encontrado com "{searchQuery}"
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="max-w-xl mx-auto">
-          <form onSubmit={createMatch} className="glass-card p-10 space-y-8">
-            <div className="space-y-4">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Desafiante</label>
-              <div className="h-16 bg-white/5 border border-white/10 rounded-2xl px-6 flex items-center text-slate-400 font-bold italic text-sm">
-                {user?.displayName}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 ml-4">Oponente</label>
-              <select 
-                required
-                value={player2Id}
-                onChange={(e) => setPlayer2Id(e.target.value)}
-                className="w-full h-16 bg-zinc-900 border border-white/10 rounded-2xl px-6 text-white text-sm focus:outline-none focus:border-brand/40 appearance-none"
-              >
-                <option value="">Selecione um oponente...</option>
-                {availablePlayers.map(p => (
-                  <option key={p.id} value={p.id}>{p.displayName}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-8">
-              <div className="space-y-4 text-center">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Seu Placar</label>
-                <div className="flex items-center justify-center gap-6">
-                  <button type="button" onClick={() => setScore1(Math.max(0, score1 - 1))} className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10">-</button>
-                  <span className="text-4xl font-black italic">{score1}</span>
-                  <button type="button" onClick={() => setScore1(score1 + 1)} className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10">+</button>
-                </div>
-              </div>
-              <div className="space-y-4 text-center">
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500">Placar Oponente</label>
-                <div className="flex items-center justify-center gap-6">
-                  <button type="button" onClick={() => setScore2(Math.max(0, score2 - 1))} className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10">-</button>
-                  <span className="text-4xl font-black italic">{score2}</span>
-                  <button type="button" onClick={() => setScore2(score2 + 1)} className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10">+</button>
-                </div>
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={loading || !player2Id}
-              className="w-full h-16 bg-brand text-zinc-950 font-black uppercase tracking-[0.2em] italic rounded-2xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
-            >
-              {loading ? 'Salvando...' : 'Registrar Resultado'}
-            </button>
-          </form>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function useNotifications() {
-  const { user } = useAuth();
-  const [notifications, setNotifications] = useState<UserNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-
-  useEffect(() => {
-    if (!user) return;
-
-    const q = query(
-      collection(db, 'users', user.uid, 'notifications'),
-      orderBy('createdAt', 'desc'),
-      limit(20)
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as UserNotification));
-      setNotifications(data);
-      setUnreadCount(data.filter(n => !n.read).length);
-
-      // System notification for non-read items added in last 5 seconds
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === "added") {
-          const newNotif = change.doc.data() as UserNotification;
-          if (Notification.permission === "granted" && !newNotif.read) {
-            new Notification(newNotif.title, {
-              body: newNotif.message,
-              icon: 'https://ais-dev-dmmpotrnzc22nc4mm2p3s7-291299211841.europe-west3.run.app/favicon.ico'
-            });
-          }
-        }
-      });
-    });
-
-    return unsubscribe;
-  }, [user]);
-
-  const markAsRead = async (id: string) => {
-    if (!user) return;
-    try {
-      await updateDoc(doc(db, 'users', user.uid, 'notifications', id), { read: true });
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const clearAll = async () => {
-    if (!user) return;
-    // For simplicity, we just mark all as read or would delete. Let's mark as read.
-    for (const n of notifications) {
-      if (!n.read) markAsRead(n.id);
-    }
-  };
-
-  const requestPermission = () => {
-    if ("Notification" in window) {
-      Notification.requestPermission();
-    }
-  };
-
-  return { notifications, unreadCount, markAsRead, clearAll, requestPermission };
-}
-
-function useAuth() {
-  const [user, setUser] = useState<AppUser | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [needsRole, setNeedsRole] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (u) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', u.uid));
-          if (userDoc.exists()) {
-            const data = userDoc.data();
-            setUser({ ...u, role: data.role } as AppUser);
-            setNeedsRole(false);
-          } else {
-            setUser(u as AppUser);
-            setNeedsRole(true);
-          }
-        } catch (error) {
-          console.error("Auth Data Fetch Error:", error);
-          setUser(u as AppUser);
-        }
-      } else {
-        setUser(null);
-        setNeedsRole(false);
-      }
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
-  const logout = () => signOut(auth);
-
-  return { user, logout, loading, needsRole };
-}
-
 // --- Main App ---
 export default function App() {
-  const { user, logout, loading, needsRole } = useAuth();
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-
-  if (loading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-      <div className="w-12 h-12 border-4 border-brand/20 border-t-brand rounded-full animate-spin" />
-    </div>
-  );
-
-  if (!user || needsRole) return <Login />;
-
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-zinc-950 selection:bg-brand selection:text-black relative overflow-hidden">
-        <Navbar onShowProfile={setSelectedProfileId} />
+        {/* Watermark */}
+        <div className="fixed bottom-10 left-10 pointer-events-none select-none z-0 opacity-[0.03] rotate-[-15deg] whitespace-nowrap">
+          <span className="text-9xl font-black uppercase tracking-[0.2em] text-white">JOTA TEMBE</span>
+        </div>
+
+        <Navbar />
         <main>
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/tournaments" element={<TournamentManager />} />
             <Route path="/tournaments/new" element={<CreateTournament />} />
-            <Route path="/tournaments/:id" element={<TournamentDetails onShowProfile={setSelectedProfileId} />} />
-            <Route path="/friendly" element={<FriendlyMatchManager onShowProfile={setSelectedProfileId} />} />
+            <Route path="/tournaments/:id" element={<TournamentDetails />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/rules" element={<BilliardsRules />} />
           </Routes>
         </main>
-
-        <PlayerProfileModal 
-          userId={selectedProfileId} 
-          onClose={() => setSelectedProfileId(null)} 
-        />
         
         <footer className="border-t border-white/5 py-16 mt-24 bg-black/20">
           <div className="max-w-7xl mx-auto px-4 flex flex-col items-center gap-12">

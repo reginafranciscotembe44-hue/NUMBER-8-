@@ -11,73 +11,9 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     // Global Helpers
     // -------------------------------------------------------------------------
-    function isSignedIn() { return request.auth != null; }
-    function userId() { return request.auth.uid; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
-
-    function isOwner() { return get(/databases/$(database)/documents/users/$(userId())).data.role == 'owner'; }
-
-    // -------------------------------------------------------------------------
-    // User Rules
-    // -------------------------------------------------------------------------
-    function isValidUser(data) {
-      return data.keys().hasAll(['displayName', 'role', 'createdAt']) &&
-             data.keys().size() <= 10 &&
-             data.role in ['player', 'owner'] &&
-             data.createdAt == request.time;
-    }
-
-    match /users/{uId} {
-      allow get: if isSignedIn();
-      allow create: if isSignedIn() && uId == userId() && isValidUser(incoming());
-      allow update: if isSignedIn() && uId == userId() && incoming().role == existing().role;
-
-      // -----------------------------------------------------------------------
-      // Notification Rules (Nested under user)
-      // -----------------------------------------------------------------------
-      function isValidNotification(data) {
-        return data.keys().hasAll(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&
-               data.userId == uId &&
-               data.type in ['tournament_start', 'match_start', 'enrollment'] &&
-               data.read is bool &&
-               data.createdAt == request.time;
-      }
-
-      match /notifications/{notificationId} {
-        allow read: if isSignedIn() && uId == userId();
-        allow update: if isSignedIn() && uId == userId() && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
-        allow create: if isSignedIn() && (
-          uId == userId() || // User can create for themselves
-          isOwner() // Owners can create for players (simplified for now, ideally check membership)
-        ) && isValidNotification(incoming());
-        allow delete: if isSignedIn() && uId == userId();
-      }
-    }
-
-    // -------------------------------------------------------------------------
-    // Friendly Matches
-    // -------------------------------------------------------------------------
-    function isValidFriendlyMatch(data) {
-      return data.keys().hasAll(['player1Id', 'player2Id', 'status', 'createdBy', 'createdAt']) &&
-             data.player1Id is string &&
-             data.player2Id is string &&
-             data.status in ['requested', 'accepted', 'finished', 'declined'] &&
-             data.createdBy == request.auth.uid &&
-             data.createdAt == request.time;
-    }
-
-    match /friendlyMatches/{matchId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && isValidFriendlyMatch(incoming());
-      allow update: if isSignedIn() && (
-        userId() == resource.data.player1Id || 
-        userId() == resource.data.player2Id ||
-        userId() == resource.data.createdBy
-      );
-      allow delete: if isSignedIn() && userId() == resource.data.createdBy;
-    }
 
     // -------------------------------------------------------------------------
     // Tournament Rules
@@ -88,22 +24,20 @@ service cloud.firestore {
              data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
              data.type in ['single_elimination', 'double_elimination', 'round_robin', 'survival', 'total_war'] &&
              data.status in ['draft', 'active', 'finished'] &&
-             data.createdAt == request.time &&
-             data.createdBy == userId();
+             data.createdAt == request.time;
     }
 
     match /tournaments/{tournamentId} {
-      allow create: if isSignedIn() && isOwner() && isValidId(tournamentId) && isValidTournament(incoming());
-      allow get: if isSignedIn();
-      allow list: if isSignedIn();
-      allow update: if isSignedIn() && existing().createdBy == userId() && (
+      allow create: if isValidId(tournamentId) && isValidTournament(incoming());
+      allow read: if true;
+      allow update: if (
         // Immutable fields check:
         incoming().createdAt == existing().createdAt &&
-        incoming().createdBy == existing().createdBy &&
+        incoming().keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
         incoming().name is string && incoming().name.size() <= 100 &&
         incoming().status in ['draft', 'active', 'finished']
       );
-      allow delete: if isSignedIn() && existing().createdBy == userId();
+      allow delete: if true;
 
       // -----------------------------------------------------------------------
       // Player Rules (Nested)
@@ -115,11 +49,9 @@ service cloud.firestore {
       }
 
       match /players/{playerId} {
-        allow create: if isSignedIn() && isValidId(playerId) && isValidPlayer(incoming()) && 
-                        (playerId == userId() || get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId());
-        allow read: if isSignedIn();
-        allow update, delete: if isSignedIn() && 
-                                get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+        allow create: if isValidId(playerId) && isValidPlayer(incoming());
+        allow read: if true;
+        allow update, delete: if true;
       }
 
       // -----------------------------------------------------------------------
@@ -132,13 +64,10 @@ service cloud.firestore {
       }
 
       match /matches/{matchId} {
-        allow create: if isSignedIn() && isValidId(matchId) && isValidMatch(incoming()) &&
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
-        allow read: if isSignedIn();
-        allow update: if isSignedIn() && 
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
-        allow delete: if isSignedIn() && 
-                        get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
+        allow create: if isValidId(matchId) && isValidMatch(incoming());
+        allow read: if true;
+        allow update: if isValidMatch(incoming());
+        allow delete: if true;
       }
     }
   }
