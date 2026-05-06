@@ -2,7 +2,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // -------------------------------------------------------------------------
-    // Global Safety Net
+    // Global Safety Net (Deny everything by default)
     // -------------------------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
@@ -12,61 +12,107 @@ service cloud.firestore {
     // Global Helpers
     // -------------------------------------------------------------------------
     function isSignedIn() { return request.auth != null; }
+    function userId() { return request.auth.uid; }
+    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
-    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128; }
+    function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
     
-    // Check if user is the creator (Anyone with the ID is granted access in this simple model)
-    function isAuthorized(tournamentId) {
-      return isValidId(tournamentId);
+    // Auth-based role check
+    function isOwner() {
+      return get(/databases/$(database)/documents/users/$(userId())).data.role == 'owner';
+    }
+
+    // -------------------------------------------------------------------------
+    // User Rules
+    // -------------------------------------------------------------------------
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'role', 'createdAt']) &&
+             data.keys().size() <= 10 &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.role in ['player', 'owner'] &&
+             data.createdAt == request.time;
+    }
+
+    match /users/{uId} {
+      // Basic profile read
+      allow get, list: if isSignedIn();
+      
+      // Allow initial profile creation without verification for a better UX
+      allow create: if isSignedIn() && uId == userId() && isValidUser(incoming());
+      allow update: if isVerified() && uId == userId() && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'age', 'playStyle', 'bio', 'locationName', 'locationAddress', 'updatedAt']) &&
+                    incoming().get('role', existing().role) == existing().role;
+
+      // Notifications (Private to user)
+      function isValidNotification(data) {
+        return data.keys().hasAll(['userId', 'title', 'message', 'type', 'read', 'createdAt']) &&
+               data.keys().size() <= 10 &&
+               data.userId == uId &&
+               data.title is string && data.title.size() <= 100 &&
+               data.message is string && data.message.size() <= 1000 &&
+               data.type is string &&
+               data.read is bool &&
+               data.createdAt == request.time;
+      }
+
+      match /notifications/{notificationId} {
+        allow list, get: if isSignedIn() && uId == userId();
+        allow create: if isSignedIn() && (uId == userId() || isOwner()) && isValidNotification(incoming());
+        allow update: if isSignedIn() && uId == userId() && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+        allow delete: if isSignedIn() && uId == userId();
+      }
     }
 
     // -------------------------------------------------------------------------
     // Tournament Rules
     // -------------------------------------------------------------------------
     function isValidTournament(data) {
-      return data.keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy', 'settings']) &&
-             data.keys().size() <= 15 && 
-             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
-             data.type in ['single_elimination', 'double_elimination', 'round_robin', 'survival', 'total_war'] &&
+      return data.keys().hasAll(['name', 'type', 'status', 'createdAt', 'createdBy']) &&
+             data.keys().size() <= 15 &&
+             data.name is string && data.name.size() <= 100 &&
+             data.type is string &&
              data.status in ['draft', 'active', 'finished'] &&
-             data.createdBy is string && data.createdBy.size() > 0;
+             data.createdAt == request.time &&
+             data.createdBy == userId();
     }
 
     match /tournaments/{tournamentId} {
-      allow create: if isValidId(tournamentId) && isValidTournament(incoming());
-      allow read: if true; // Publicly viewable
-      allow update, delete: if isValidId(tournamentId);
+      allow create: if isVerified() && isOwner() && isValidTournament(incoming());
+      
+      // Allow reading tournaments
+      allow list, get: if isSignedIn() && (
+        existing().get('status', 'draft') != 'draft' || 
+        existing().createdBy == userId()
+      );
 
-      // -----------------------------------------------------------------------
-      // Player Rules (Nested)
-      // -----------------------------------------------------------------------
-      function isValidPlayer(data) {
-        return data.keys().hasAll(['name', 'tournamentId']) &&
-               data.name is string && data.name.size() > 0 && data.name.size() <= 50 &&
-               data.tournamentId == tournamentId;
-      }
+      allow update: if isVerified() && existing().createdBy == userId() && 
+                    existing().get('status', 'active') != 'finished' &&
+                    incoming().createdBy == existing().createdBy;
 
+      allow delete: if isVerified() && existing().createdBy == userId();
+
+      // players and matches
       match /players/{playerId} {
-        allow create: if isAuthorized(tournamentId) && isValidId(playerId) && isValidPlayer(incoming());
-        allow read: if true;
-        allow update, delete: if isAuthorized(tournamentId);
-      }
-
-      // -----------------------------------------------------------------------
-      // Match Rules (Nested)
-      // -----------------------------------------------------------------------
-      function isValidMatch(data) {
-        return data.keys().hasAll(['tournamentId', 'round', 'status']) &&
-               data.tournamentId == tournamentId &&
-               data.status in ['pending', 'in_progress', 'finished'];
+        allow read: if isSignedIn();
+        allow create: if isVerified() && (playerId == userId() || get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId());
+        allow update, delete: if isVerified() && get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
       }
 
       match /matches/{matchId} {
-        allow create: if isAuthorized(tournamentId) && isValidId(matchId) && isValidMatch(incoming());
-        allow read: if true;
-        allow update, delete: if isAuthorized(tournamentId);
+        allow read: if isSignedIn();
+        allow create, update, delete: if isVerified() && get(/databases/$(database)/documents/tournaments/$(tournamentId)).data.createdBy == userId();
       }
+    }
+
+    // -------------------------------------------------------------------------
+    // Friendly Matches
+    // -------------------------------------------------------------------------
+    match /friendlyMatches/{matchId} {
+      allow read: if isSignedIn();
+      allow create: if isVerified() && (incoming().player1Id == userId() || incoming().player2Id == userId());
+      allow update: if isVerified() && (userId() == existing().player1Id || userId() == existing().player2Id);
+      allow delete: if isVerified() && existing().createdBy == userId();
     }
   }
 }

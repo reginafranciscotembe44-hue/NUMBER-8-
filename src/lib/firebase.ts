@@ -1,23 +1,34 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getAnalytics } from 'firebase/analytics';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
 
-// Connectivity check as per instructions
+// Using initializeFirestore to set experimentalForceLongPolling which often fixes "offline" issues
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, (firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)') ? firebaseConfig.firestoreDatabaseId : undefined);
+
+export const auth = getAuth(app);
+auth.languageCode = 'pt';
+export const analytics = typeof window !== 'undefined' ? getAnalytics(app) : null;
+
+// Connectivity check
 async function testConnection() {
+  if (typeof window === 'undefined') return;
+  
   try {
-    // Only run if not in a server-like environment or just to verify
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    await getDocFromServer(doc(db, 'test', 'connection')).catch(err => {
+      if (err.message.includes('the client is offline')) {
+         console.warn("Firestore reports client is offline.");
+      }
+    });
+    console.log("Firestore reachability test completed.");
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
+    console.debug("Firebase connection test failed:", error);
   }
 }
 
-// In a real app we might not want this blocking, but the instructions mandate a check.
-// testConnection();
+testConnection();
