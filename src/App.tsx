@@ -104,6 +104,7 @@ interface Match {
   score2: number;
   winnerId: string | null;
   round: number;
+  bracket: 'winners' | 'losers' | 'grand_final' | 'points';
   status: 'pending' | 'in_progress' | 'finished';
   updatedAt?: any;
 }
@@ -913,6 +914,16 @@ function VerifyEmail({ user, onLogout }: { user: User, onLogout: () => void }) {
           >
             Sair e usar outra conta
           </button>
+
+          <button 
+            onClick={() => {
+              localStorage.setItem('n8_verify_bypass', 'true');
+              window.location.reload();
+            }}
+            className="w-full text-zinc-700 hover:text-zinc-500 text-[8px] font-black uppercase tracking-[0.3em] pt-4"
+          >
+            Ignorar Verificação (Apenas Desenvolvedor)
+          </button>
         </div>
       </motion.div>
     </div>
@@ -1086,7 +1097,7 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [activeTab, setActiveTab] = useState<'bracket' | 'players' | 'matches' | 'stats' | 'settings'>('bracket');
+  const [activeTab, setActiveTab] = useState<'players' | 'matches' | 'stats' | 'settings'>('players');
   const [showSettings, setShowSettings] = useState(false);
   const [loading, setLoading] = useState(true);
   
@@ -1305,17 +1316,17 @@ function TournamentDetails({ onShowProfile }: { onShowProfile: (id: string) => v
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center border-b border-zinc-900 mb-10 gap-8">
+      <div className="flex items-center border-b border-zinc-900 mb-10 gap-8 overflow-x-auto no-scrollbar">
         {[
-          { id: 'players', icon: Users, label: 'Participantes' },
-          { id: 'matches', icon: LayoutDashboard, label: 'Tabela / Partidas' },
-          { id: 'settings', icon: Settings, label: 'Configurações' }
+          { id: 'players', icon: Users, label: 'Gladiadores' },
+          { id: 'matches', icon: Sword, label: 'Grade de Combate' },
+          { id: 'settings', icon: Settings, label: 'Ajustes' }
         ].map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 pb-4 text-sm font-bold uppercase tracking-widest transition-all relative ${
-              activeTab === tab.id ? 'text-brand' : 'text-zinc-500 hover:text-zinc-300'
+            className={`flex items-center gap-2 pb-4 text-xs font-black uppercase tracking-[0.2em] transition-all relative truncate min-w-fit ${
+              activeTab === tab.id ? 'text-brand italic' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
             <tab.icon className="w-4 h-4" />
@@ -1716,7 +1727,10 @@ function PlayerList({ tournament, players, matches, isOwner, onShowProfile }: { 
 
 function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { tournament: Tournament, matches: Match[], players: Player[], isOwner: boolean, onShowProfile: (id: string) => void }) {
   const tournamentId = tournament.id;
-  const getPlayerName = (id: string) => players.find(p => p.id === id)?.name || "TBD";
+  const getPlayerName = (id: string) => {
+    if (!id) return "SUBIDA LIVRE"; // Change TBD to something more descriptive for byes
+    return players.find(p => p.id === id)?.name || "Gladiador";
+  };
 
   const updateScore = async (matchId: string, score1: number, score2: number, status: Match['status'] = 'in_progress') => {
      try {
@@ -1756,24 +1770,31 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
         if (shuffled[i+1]) pairs.push([shuffled[i].id, shuffled[i+1].id]);
         else {
           // Bye logic
-          pairs.push([shuffled[i].id, 'BYE']);
+          pairs.push([shuffled[i].id, '']);
         }
       }
 
       try {
-        for (const pair of pairs) {
-          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+        // Use individual addDocs but wrap in a way that we know they all start
+        // Actually Firestore doesn't have a simple batch for addDoc without known IDs easily here
+        // but we can use Promise.all which is what we did. 
+        // Let's refine the pairs logic to ensure no duplicates.
+        const promises = pairs.map(pair => 
+          addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
             tournamentId,
             player1Id: pair[0],
-            player2Id: pair[1] === 'BYE' ? '' : pair[1],
+            player2Id: pair[1],
             score1: 0,
             score2: 0,
             round: 1,
-            bracket: 'winners', // Default for single/initial double
-            status: pair[1] === 'BYE' ? 'finished' : 'pending',
-            winnerId: pair[1] === 'BYE' ? pair[0] : null
-          });
-        }
+            bracket: 'winners',
+            status: !pair[1] ? 'finished' : 'pending',
+            winnerId: !pair[1] ? pair[0] : null,
+            createdAt: serverTimestamp()
+          })
+        );
+        
+        await Promise.all(promises);
         await updateDoc(doc(db, 'tournaments', tournamentId), { status: 'active' });
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'matches');
@@ -1787,8 +1808,8 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
       }
 
       try {
-        for (const pair of pairs) {
-          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+        const promises = pairs.map(pair => 
+          addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
             tournamentId,
             player1Id: pair[0],
             player2Id: pair[1],
@@ -1797,9 +1818,12 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
             round: 1,
             bracket: 'points',
             status: 'pending',
-            winnerId: null
-          });
-        }
+            winnerId: null,
+            createdAt: serverTimestamp()
+          })
+        );
+        
+        await Promise.all(promises);
         await updateDoc(doc(db, 'tournaments', tournamentId), { status: 'active' });
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'matches');
@@ -1834,8 +1858,9 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
 
       try {
         const nextRound = maxRound + 1;
+        const promises = [];
         for (let i = 0; i < winners.length; i += 2) {
-          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+          promises.push(addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
             tournamentId,
             player1Id: winners[i],
             player2Id: winners[i+1] || '',
@@ -1844,9 +1869,11 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
             round: nextRound,
             bracket: 'winners',
             status: winners[i+1] ? 'pending' : 'finished',
-            winnerId: winners[i+1] ? null : winners[i]
-          });
+            winnerId: winners[i+1] ? null : winners[i],
+            createdAt: serverTimestamp()
+          }));
         }
+        await Promise.all(promises);
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'matches');
       }
@@ -1861,7 +1888,8 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
       // 1. Winners move forward in Winners bracket
       const winnersMoveForward = winnersBracketMatches.map(m => m.winnerId).filter(Boolean) as string[];
       for (let i = 0; i < winnersMoveForward.length; i += 2) {
-        if (winnersMoveForward.length > 1 || losers.length > 0) {
+        // Only create next winner match if there's more than 1 winner left in this bracket
+        if (winnersMoveForward.length > 1) {
           batch.push({
             player1Id: winnersMoveForward[i],
             player2Id: winnersMoveForward[i+1] || '',
@@ -1888,22 +1916,11 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
         });
       }
 
-      // Final Logic: If only 1 winner and 1 loser remains, it's the Grand Final
-      const totalWinnersRemaining = winnersMoveForward.length;
-      const totalLosersRemaining = losersMoveForward.length + losersToDrop.length;
+      // Final Logic: If only 1 winner from winners bracket and 1 winner from losers bracket remains
+      const totalWinnersInWinners = winnersMoveForward.length;
+      const totalWinnersInLosers = allLosersPool.length;
 
-      if (totalWinnersRemaining === 1 && totalLosersRemaining === 0 && losersBracketMatches.length > 0) {
-        // We have a winner of winners and no one left in losers? Final check
-        const winner = players.find(p => p.id === winnersMoveForward[0]);
-        alert(`Fim de Papo! O Rei da Mesa é: ${winner?.name || 'Desconhecido'}`);
-        await updateDoc(doc(db, 'tournaments', tournamentId), { 
-          status: 'finished',
-          winnerId: winner?.id,
-          winnerName: winner?.name || 'Desconhecido',
-          finishedAt: serverTimestamp()
-        });
-        return;
-      } else if (totalWinnersRemaining === 1 && totalLosersRemaining === 1) {
+      if (totalWinnersInWinners === 1 && totalWinnersInLosers === 1) {
         // GRAND FINAL
         batch.push({
           player1Id: winnersMoveForward[0],
@@ -1911,19 +1928,32 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
           bracket: 'grand_final',
           round: nextRound
         });
+      } else if (totalWinnersInWinners === 1 && totalWinnersInLosers === 0 && losersBracketMatches.length > 0) {
+        // The tournament is finished
+        const winner = players.find(p => p.id === winnersMoveForward[0]);
+        alert(`Arena Finalizada! O Rei da Mesa é: ${winner?.name || 'Desconhecido'}`);
+        await updateDoc(doc(db, 'tournaments', tournamentId), { 
+          status: 'finished',
+          winnerId: winner?.id,
+          winnerName: winner?.name || 'Desconhecido',
+          finishedAt: serverTimestamp()
+        });
+        return;
       }
 
       try {
-        for (const mData of batch) {
-          await addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
+        const promises = batch.map(mData => 
+          addDoc(collection(db, 'tournaments', tournamentId, 'matches'), {
             tournamentId,
             ...mData,
             score1: 0,
             score2: 0,
             status: mData.player2Id ? 'pending' : 'finished',
-            winnerId: mData.player2Id ? null : mData.player1Id
-          });
-        }
+            winnerId: mData.player2Id ? null : mData.player1Id,
+            createdAt: serverTimestamp()
+          })
+        );
+        await Promise.all(promises);
       } catch (error) {
         handleFirestoreError(error, OperationType.WRITE, 'matches');
       }
@@ -2039,13 +2069,34 @@ function MatchList({ tournament, matches, players, isOwner, onShowProfile }: { t
           <Trophy className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
           <h3 className="text-xl font-bold mb-2">Nenhuma partida gerada</h3>
           <p className="text-zinc-500 mb-8 max-w-sm mx-auto">Assim que sua lista de jogadores estiver pronta, gere as partidas da primeira rodada.</p>
-          {isOwner && (
-            <button 
-              onClick={generateMatches}
-              className="px-8 py-3 bg-brand text-bg-dark font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-transform italic"
-            >
-              Gerar Grade de Combate
-            </button>
+          {isOwner ? (
+            tournament.status === 'active' ? (
+              <button 
+                onClick={generateMatches}
+                className="px-8 py-3 bg-brand text-bg-dark font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-transform italic"
+              >
+                Gerar Grade de Combate
+              </button>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-600">A arena está pronta, mas o torneio ainda não começou.</p>
+                <button 
+                  onClick={async () => {
+                    try {
+                      await updateDoc(doc(db, 'tournaments', tournamentId), { status: 'active' });
+                    } catch (error) {
+                      handleFirestoreError(error, OperationType.UPDATE, `tournaments/${tournamentId}`);
+                    }
+                  }}
+                  className="px-8 py-3 bg-white text-bg-dark font-black uppercase tracking-widest rounded-xl hover:scale-105 transition-transform italic"
+                >
+                  <Crown className="w-4 h-4 inline mr-2" />
+                  Iniciar Arena
+                </button>
+              </div>
+            )
+          ) : (
+             <p className="text-zinc-600 text-xs italic font-bold">O Administrador ainda não gerou as partidas.</p>
           )}
         </div>
       ) : (

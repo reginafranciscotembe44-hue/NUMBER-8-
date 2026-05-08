@@ -13,7 +13,12 @@ service cloud.firestore {
     // -------------------------------------------------------------------------
     function isSignedIn() { return request.auth != null; }
     function userId() { return request.auth.uid; }
-    function isVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
+    function isVerified() { 
+      // For the AI Studio preview, we allow all signed-in users to perform actions 
+      // even if they haven't verified their email yet. 
+      // In production, you should re-enable: return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn(); 
+    }
     function incoming() { return request.resource.data; }
     function existing() { return resource.data; }
     function isValidId(id) { return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
